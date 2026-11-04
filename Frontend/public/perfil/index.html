@@ -646,7 +646,7 @@
                     return;
                 }
 
-                const response = await fetch(`http://localhost:3000/api/reservas/usuario/${userData.id}`, {
+                const response = await fetch(`/api/reservas/usuario/${userData.id}`, {
                     method: 'GET',
                     headers: {
                         'Authorization': `Bearer ${token}`,
@@ -794,7 +794,7 @@
             try {
                 const token = localStorage.getItem('auth_token');
 
-                const response = await fetch(`http://localhost:3000/api/reservas/${reservaId}/cancelar`, {
+                const response = await fetch(`/api/reservas/${reservaId}/cancelar`, {
                     method: 'PUT',
                     headers: {
                         'Authorization': `Bearer ${token}`,

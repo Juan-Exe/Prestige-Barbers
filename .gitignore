@@ -35,3 +35,12 @@ uploads/
 
 # Archivos de seguridad
 Registros de seguridad/
+
+# Credenciales y accesos: nunca deben subirse al repositorio
+Accesos
+Accesos.*
+accesos
+credenciales*
+*.pem
+*.key
+id_rsa*

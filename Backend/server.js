@@ -164,8 +164,28 @@ app.use((req, res, next) => {
 // ==================== MIDDLEWARE BÁSICO ====================
 app.use(express.json({ limit: '10mb' })); // Limitar tamaño de payload
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(express.static(path.join(__dirname, '..', 'Frontend', 'public')));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Archivos estaticos. El HTML se revalida siempre (para no servir paginas
+// viejas tras un deploy) y los recursos con hash/imagenes se cachean.
+app.use(express.static(path.join(__dirname, '..', 'Frontend', 'public'), {
+    etag: true,
+    lastModified: true,
+    setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html')) {
+            res.setHeader('Cache-Control', 'no-cache');
+        } else if (/\.(jpg|jpeg|png|webp|gif|svg|ico|woff2?)$/i.test(filePath)) {
+            res.setHeader('Cache-Control', 'public, max-age=604800'); // 7 dias
+        } else {
+            res.setHeader('Cache-Control', 'public, max-age=3600'); // 1 hora
+        }
+    }
+}));
+
+// Imagenes subidas: nombre unico con timestamp, se pueden cachear mas tiempo
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
+    etag: true,
+    lastModified: true,
+    maxAge: '30d'
+}));
 
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
@@ -278,15 +298,23 @@ app.post('/api/auth/register',
         .trim()
         .isLength({ min: 3, max: 60 })
         .withMessage('El nombre debe tener entre 3 y 60 caracteres')
-        // Solo letras (con tildes y ñ), espacios, guion y apóstrofo: sin números ni símbolos
-        .matches(/^[A-Za-zÁÉÍÓÚáéíóúÑñÜü]+(?:[ '-][A-Za-zÁÉÍÓÚáéíóúÑñÜü]+)*$/)
+        // Solo letras (con tildes y ñ), espacios, guion y apóstrofo: sin números ni símbolos.
+        // Se evita la alternancia anidada para no exponerse a ReDoS.
+        .matches(/^[A-Za-zÁÉÍÓÚáéíóúÑñÜü][A-Za-zÁÉÍÓÚáéíóúÑñÜü '-]*[A-Za-zÁÉÍÓÚáéíóúÑñÜü]$/)
         .withMessage('El nombre solo puede contener letras y espacios, sin números ni símbolos')
+        .not().matches(/[ '-]{2,}/)
+        .withMessage('El nombre no puede tener espacios o guiones seguidos')
         .escape(),
     body('email')
         .trim()
         .isEmail()
         .withMessage('Email inválido')
         .normalizeEmail(),
+    body('telefono')
+        .optional({ checkFalsy: true })
+        .trim()
+        .matches(/^[0-9+\s()-]{7,20}$/)
+        .withMessage('El teléfono solo puede contener números, espacios y los signos + ( ) -'),
     body('password')
         .isLength({ min: 6 })
         .withMessage('La contraseña debe tener al menos 6 caracteres')
@@ -308,7 +336,7 @@ app.post('/api/auth/register',
                 });
             }
             
-            const { nombre_completo, email, password, confirm_password } = req.body;
+            const { nombre_completo, email, telefono, password, confirm_password } = req.body;
         
         // Validaciones básicas
         if (!nombre_completo || !email || !password || !confirm_password) {
@@ -364,8 +392,8 @@ app.post('/api/auth/register',
             const passwordHash = await bcrypt.hash(password, 10);
             
             // Insertar nuevo usuario
-            const query = 'INSERT INTO usuarios (nombre_completo, email, password_hash) VALUES (?, ?, ?)';
-            db.query(query, [nombre_completo, email, passwordHash], (err, result) => {
+            const query = 'INSERT INTO usuarios (nombre_completo, email, telefono, password_hash) VALUES (?, ?, ?, ?)';
+            db.query(query, [nombre_completo, email, telefono || null, passwordHash], (err, result) => {
                 if (err) {
                     console.error('Error al registrar usuario:', err);
                     return res.status(500).json({ 
@@ -388,7 +416,8 @@ app.post('/api/auth/register',
                     user: {
                         id: result.insertId,
                         nombre_completo: nombre_completo,
-                        email: email
+                        email: email,
+                        telefono: telefono || null
                     }
                 });
             });
@@ -490,6 +519,7 @@ app.post('/api/auth/login',
                     id: usuario.id,
                     nombre_completo: usuario.nombre_completo,
                     email: usuario.email,
+                    telefono: usuario.telefono || null,
                     rol: usuario.rol
                 }
             });
@@ -506,7 +536,7 @@ app.post('/api/auth/login',
 
 // GET /api/auth/me - Obtener datos del usuario actual (requiere token)
 app.get('/api/auth/me', verificarToken, (req, res) => {
-    db.query('SELECT id, nombre_completo, email, fecha_registro, rol FROM usuarios WHERE id = ?', 
+    db.query('SELECT id, nombre_completo, email, telefono, fecha_registro, rol FROM usuarios WHERE id = ?', 
         [req.userId], 
         (err, results) => {
             if (err) {

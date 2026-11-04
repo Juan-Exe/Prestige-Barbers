@@ -964,8 +964,14 @@ class ReservaModalController {
                 console.log('⚠️ [LOAD-USER-DATA] Usuario sin nombre en localStorage');
             }
 
-            // NO autocompletar teléfono - el usuario lo proporciona manualmente
-            console.log('ℹ️ [LOAD-USER-DATA] Teléfono NO autocompletado - usuario debe ingresarlo');
+            // Autocompletar el teléfono guardado en el perfil (el usuario puede cambiarlo)
+            const phoneInput = document.getElementById('modalClientPhone');
+            if (phoneInput && user.telefono) {
+                phoneInput.value = user.telefono;
+                console.log('✅ [LOAD-USER-DATA] Teléfono autocompletado desde el perfil');
+            } else if (phoneInput) {
+                console.log('ℹ️ [LOAD-USER-DATA] El usuario no tiene teléfono guardado');
+            }
 
         } catch (error) {
             console.error('❌ [LOAD-USER-DATA] Error al parsear datos de usuario:', error);
@@ -1471,6 +1477,8 @@ class ModalCalendar {
         this.currentOffset = 0;
         this.selectedDate = null;
         this.daysToShow = 5;
+        // Horizonte de reserva: cuantos dias hacia adelante se pueden elegir
+        this.maxDays = 60;
         this.daysContainer = document.getElementById('modalDaysContainer');
         this.prevBtn = document.getElementById('modalPrevDays');
         this.nextBtn = document.getElementById('modalNextDays');
@@ -1575,7 +1583,7 @@ class ModalCalendar {
     }
 
     nextDays() {
-        if (this.currentOffset + this.daysToShow < 30) {
+        if (this.currentOffset + this.daysToShow < this.maxDays) {
             this.currentOffset += this.daysToShow;
             this.renderDays('next');
         }
@@ -1588,7 +1596,7 @@ class ModalCalendar {
             this.prevBtn.disabled = false;
         }
 
-        if (this.currentOffset + this.daysToShow >= 30) {
+        if (this.currentOffset + this.daysToShow >= this.maxDays) {
             this.nextBtn.disabled = true;
         } else {
             this.nextBtn.disabled = false;

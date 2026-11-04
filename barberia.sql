@@ -235,6 +235,7 @@ CREATE TABLE `usuarios` (
   `id` int(11) NOT NULL,
   `nombre_completo` varchar(255) NOT NULL,
   `email` varchar(255) NOT NULL,
+  `telefono` varchar(20) DEFAULT NULL,
   `rol` enum('usuario','admin') NOT NULL DEFAULT 'usuario',
   `password_hash` varchar(255) NOT NULL,
   `fecha_registro` timestamp NOT NULL DEFAULT current_timestamp(),

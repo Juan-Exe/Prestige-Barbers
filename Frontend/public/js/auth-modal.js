@@ -100,11 +100,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Obtener valores de los campos
                 const nombreCompleto = registerForm.querySelector('#register-name')?.value.trim();
                 const email = registerForm.querySelector('#register-email')?.value.trim();
+                const telefono = registerForm.querySelector('#register-phone')?.value.trim() || '';
                 const password = registerForm.querySelector('#register-password')?.value;
                 const confirmPassword = registerForm.querySelector('#register-confirm')?.value;
                 
                 // Validaciones en frontend
-                if (!nombreCompleto || !email || !password || !confirmPassword) {
+                if (!nombreCompleto || !email || !telefono || !password || !confirmPassword) {
                     if (window.customModal) {
                         customModal.showAlert('Por favor completa todos los campos', 'Campos incompletos');
                     } else {
@@ -114,8 +115,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 // El nombre solo admite letras (con tildes y ñ), espacios, guion y apóstrofo
-                const nombreValido = /^[A-Za-zÁÉÍÓÚáéíóúÑñÜü]+(?:[ '-][A-Za-zÁÉÍÓÚáéíóúÑñÜü]+)*$/;
-                if (!nombreValido.test(nombreCompleto)) {
+                // Solo letras, espacios y los signos ' - ; sin alternancia anidada
+                // para evitar backtracking exponencial (ReDoS).
+                const soloLetrasYSeparadores = /^[A-Za-zÁÉÍÓÚáéíóúÑñÜü '-]+$/;
+                const empiezaYterminaEnLetra = /^[A-Za-zÁÉÍÓÚáéíóúÑñÜü].*[A-Za-zÁÉÍÓÚáéíóúÑñÜü]$/;
+                const sinSeparadoresSeguidos = !/[ '-]{2,}/.test(nombreCompleto);
+                if (!soloLetrasYSeparadores.test(nombreCompleto) ||
+                    !empiezaYterminaEnLetra.test(nombreCompleto) ||
+                    !sinSeparadoresSeguidos) {
                     if (window.customModal) {
                         customModal.showAlert('El nombre solo puede contener letras y espacios, sin números ni símbolos', 'Nombre inválido');
                     } else {
@@ -129,6 +136,17 @@ document.addEventListener('DOMContentLoaded', () => {
                         customModal.showAlert('El nombre debe tener entre 3 y 60 caracteres', 'Nombre inválido');
                     } else {
                         mostrarMensaje('El nombre debe tener entre 3 y 60 caracteres', 'error');
+                    }
+                    return;
+                }
+
+                // El celular solo admite digitos y los signos + ( ) - y espacios
+                const telefonoValido = /^[0-9+\s()-]{7,20}$/;
+                if (!telefonoValido.test(telefono)) {
+                    if (window.customModal) {
+                        customModal.showAlert('Ingresa un número de celular válido (mínimo 7 dígitos)', 'Celular inválido');
+                    } else {
+                        mostrarMensaje('Ingresa un número de celular válido', 'error');
                     }
                     return;
                 }
@@ -176,6 +194,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         body: JSON.stringify({
                             nombre_completo: nombreCompleto,
                             email: email,
+                            telefono: telefono,
                             password: password,
                             confirm_password: confirmPassword
                         })

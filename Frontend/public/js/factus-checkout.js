@@ -147,8 +147,26 @@
     }
 
     function pantallaPagado(orden) {
-        detenerSondeo();
         detenerCuentaAtras();
+
+        const factura = orden.factura;
+        // La factura se emite en segundo plano: puede tardar unos
+        // segundos en aparecer, así que se sigue consultando.
+        const bloqueFactura = factura && factura.numero
+            ? `<div class="factus-factura">
+                   <span class="factus-factura-etiqueta">Factura electrónica</span>
+                   <strong class="factus-factura-numero">${escapar(factura.numero)}</strong>
+                   ${factura.cufe
+                       ? `<span class="factus-cufe">CUFE: ${escapar(String(factura.cufe).slice(0, 24))}...</span>`
+                       : ''}
+                   ${factura.public_url
+                       ? `<a href="${escapar(factura.public_url)}" target="_blank" rel="noopener"
+                            class="factus-enlace-factura">Ver factura</a>`
+                       : ''}
+               </div>`
+            : `<div class="factus-factura factus-factura-espera">
+                   <span class="factus-punto"></span> Emitiendo la factura electrónica...
+               </div>`;
 
         pintar(`
             <div class="factus-exito-icono">&#10003;</div>
@@ -157,6 +175,9 @@
             <p class="factus-instruccion">
                 Tu pago se recibió correctamente. Gracias por tu compra.
             </p>
+
+            ${bloqueFactura}
+
             <p class="factus-referencia">Referencia: ${escapar(orden.referencia)}</p>
             <div class="factus-acciones">
                 <button class="factus-btn-primario" id="factusListo">Continuar</button>
@@ -171,6 +192,13 @@
         // Ahora sí: el pago está confirmado, el carrito se puede vaciar.
         if (window.carritoManager && typeof window.carritoManager.vaciarCarrito === 'function') {
             window.carritoManager.vaciarCarrito();
+        }
+
+        // Si la factura aún no está, se sigue preguntando.
+        if (!factura || !factura.numero) {
+            if (!sondeo) iniciarSondeo();
+        } else {
+            detenerSondeo();
         }
     }
 
@@ -288,7 +316,61 @@
     // -----------------------------------------------------------------
     //  Iniciar el pago
     // -----------------------------------------------------------------
-    async function iniciarPago(items, reservaId) {
+    // Pide el documento cuando el backend dice que hace falta para
+    // emitir la factura electrónica.
+    function pantallaDocumento(items, reservaId, aviso) {
+        pintar(`
+            <h2 class="factus-titulo">Datos para la factura</h2>
+            <p class="factus-instruccion">
+                La DIAN exige identificar al comprador en la factura
+                electrónica. Solo te lo pedimos una vez.
+            </p>
+
+            ${aviso ? `<p class="factus-aviso">${escapar(aviso)}</p>` : ''}
+
+            <div class="factus-campo">
+                <label class="factus-etiqueta" for="factusTipoDoc">Tipo de documento</label>
+                <select id="factusTipoDoc" class="factus-input">
+                    <option value="13">Cédula de ciudadanía</option>
+                    <option value="22">Cédula de extranjería</option>
+                    <option value="31">NIT</option>
+                    <option value="41">Pasaporte</option>
+                </select>
+            </div>
+
+            <div class="factus-campo">
+                <label class="factus-etiqueta" for="factusDoc">Número</label>
+                <input type="text" id="factusDoc" class="factus-input"
+                       inputmode="numeric" placeholder="1098765432"
+                       autocomplete="off" maxlength="15">
+            </div>
+
+            <div class="factus-acciones">
+                <button class="factus-btn-primario" id="factusSeguir">Continuar al pago</button>
+            </div>
+        `);
+
+        const input = document.getElementById('factusDoc');
+        const seguir = document.getElementById('factusSeguir');
+
+        const enviar = () => {
+            const doc = input.value.trim();
+            if (!/^[0-9]{5,15}$/.test(doc)) {
+                return pantallaDocumento(items, reservaId,
+                    'El documento debe tener entre 5 y 15 dígitos, sin puntos ni guiones');
+            }
+            iniciarPago(items, reservaId, {
+                documento: doc,
+                tipo_documento: document.getElementById('factusTipoDoc').value,
+            });
+        };
+
+        seguir.addEventListener('click', enviar);
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') enviar(); });
+        input.focus();
+    }
+
+    async function iniciarPago(items, reservaId, datosFiscales) {
         const token = localStorage.getItem('auth_token');
         if (!token) {
             if (window.customModal) {
@@ -315,10 +397,19 @@
                     'Content-Type': 'application/json',
                     'Accept': 'application/json',
                 },
-                body: JSON.stringify({ items, reserva_id: reservaId || null }),
+                body: JSON.stringify({
+                    items,
+                    reserva_id: reservaId || null,
+                    ...(datosFiscales || {}),
+                }),
             });
 
             const datos = await r.json();
+
+            // El backend pide el documento la primera vez.
+            if (!r.ok && datos.requiere_documento) {
+                return pantallaDocumento(items, reservaId);
+            }
 
             if (!r.ok) {
                 return pantallaError(

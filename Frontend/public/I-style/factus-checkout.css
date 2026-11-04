@@ -277,3 +277,85 @@
         flex-direction: column;
     }
 }
+
+/* ---- Datos fiscales ---- */
+.factus-campo {
+    margin: 0 0 16px;
+    text-align: left;
+}
+
+.factus-etiqueta {
+    display: block;
+    margin-bottom: 7px;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: #666;
+}
+
+.factus-input {
+    width: 100%;
+    padding: 11px 12px;
+    background: #fff;
+    border: 1px solid #ccc;
+    font-family: "Montserrat", sans-serif;
+    font-size: 0.95rem;
+    color: #1b1b1b;
+}
+
+.factus-input:focus {
+    outline: none;
+    border-color: #1b1b1b;
+}
+
+/* ---- Factura emitida ---- */
+.factus-factura {
+    margin: 0 0 18px;
+    padding: 16px;
+    background: #f9f9f9;
+    border: 1px solid #1b1b1b;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.factus-factura-espera {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    border-color: #e0e0e0;
+    color: #666;
+    font-size: 0.87rem;
+}
+
+.factus-factura-etiqueta {
+    font-size: 0.74rem;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: #666;
+}
+
+.factus-factura-numero {
+    font-size: 1.05rem;
+    color: #1b1b1b;
+    letter-spacing: 0.5px;
+}
+
+.factus-cufe {
+    font-family: "Courier New", monospace;
+    font-size: 0.72rem;
+    color: #999;
+    word-break: break-all;
+}
+
+.factus-enlace-factura {
+    margin-top: 5px;
+    font-size: 0.85rem;
+    color: #1b1b1b;
+    text-decoration: underline;
+}
+
+.factus-enlace-factura:hover {
+    opacity: 0.65;
+}

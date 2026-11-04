@@ -11,6 +11,7 @@
 // =====================================================================
 
 const pay = require('./pay-client');
+const facturacion = require('./facturacion-client');
 
 // IVA general en Colombia. Los precios del catálogo ya lo incluyen,
 // así que la base gravable se obtiene dividiendo, no multiplicando.
@@ -201,11 +202,14 @@ async function crearOrden(db, { usuarioId, cliente, items, reservaId = null }) {
             INSERT INTO facturacion_ordenes
                 (referencia, tipo, usuario_id, reserva_id,
                  cliente_nombre, cliente_email, cliente_telefono,
+                 cliente_tipo_documento, cliente_documento, cliente_direccion,
                  subtotal, impuestos, total, estado)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'creada')
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'creada')
         `, [
             temporal, tipo, usuarioId, reservaId,
             cliente.nombre, cliente.email || null, cliente.telefono || null,
+            cliente.tipo_documento || '13', cliente.documento || null,
+            cliente.direccion || null,
             totales.subtotal, totales.impuestos, totales.total,
         ]);
 
@@ -417,7 +421,104 @@ async function marcarPagada(db, orden, recaudo, origen) {
         }
     }
 
+    // La factura se emite sin esperar: el webhook debe responder en
+    // milisegundos y facturar tarda segundos. Si falla, la orden queda
+    // en 'error_factura' y se puede reintentar sin volver a cobrar.
+    setImmediate(() => {
+        emitirFacturaDeOrden(db, orden.id).catch((e) =>
+            console.error('[factus-fact] Error al facturar:', e.message)
+        );
+    });
+
     return true;
+}
+
+// ---------------------------------------------------------------------
+//  Emitir la factura electrónica
+//
+//  Se llama cuando la orden queda pagada. Si falla, la orden pasa a
+//  'error_factura': el pago sigue siendo válido y la factura se puede
+//  reintentar sin volver a cobrar.
+//
+//  Sin documento del cliente no se factura, porque la DIAN lo exige.
+// ---------------------------------------------------------------------
+async function emitirFacturaDeOrden(db, ordenId) {
+    const filas = await consultar(db,
+        'SELECT * FROM facturacion_ordenes WHERE id = ?', [ordenId]);
+    if (filas.length === 0) return null;
+
+    const orden = filas[0];
+
+    if (orden.estado === 'facturada') {
+        return { yaFacturada: true, numero: orden.factus_number };
+    }
+    if (orden.estado !== 'pagada' && orden.estado !== 'error_factura') {
+        return { noAplica: true, estado: orden.estado };
+    }
+
+    if (!orden.cliente_documento) {
+        await consultar(db,
+            "UPDATE facturacion_ordenes SET estado='error_factura', ultimo_error=? WHERE id=?",
+            ['Falta el documento del cliente para facturar', orden.id]);
+        await registrarEvento(db, {
+            ordenId: orden.id, referencia: orden.referencia,
+            fuente: 'facturacion', evento: 'factura_sin_documento',
+            resultado: 'error', mensaje: 'El cliente no tiene documento registrado',
+        });
+        return { error: 'Falta el documento del cliente' };
+    }
+
+    const items = await consultar(db,
+        'SELECT * FROM facturacion_orden_items WHERE orden_id = ?', [orden.id]);
+
+    try {
+        const factura = await facturacion.emitirFactura({
+            referencia: orden.referencia,
+            total: orden.total,
+            observacion: `Prestige Barbers - ${orden.referencia}`,
+            cliente: {
+                tipo_documento: orden.cliente_tipo_documento || '13',
+                documento: orden.cliente_documento,
+                nombre: orden.cliente_nombre,
+                email: orden.cliente_email,
+                telefono: orden.cliente_telefono,
+                direccion: orden.cliente_direccion,
+            },
+            items,
+        });
+
+        await consultar(db, `
+            UPDATE facturacion_ordenes
+               SET estado = 'facturada',
+                   factus_number = ?, factus_cufe = ?,
+                   factus_public_url = ?, factus_validated_at = NOW(),
+                   ultimo_error = NULL
+             WHERE id = ?
+        `, [factura.numero, factura.cufe, factura.publicUrl, orden.id]);
+
+        await registrarEvento(db, {
+            ordenId: orden.id, referencia: orden.referencia,
+            fuente: 'facturacion', evento: 'factura_emitida',
+            resultado: 'ok', mensaje: `Factura ${factura.numero}`,
+        });
+
+        console.log(`[factus-fact] ${orden.referencia} facturada: ${factura.numero}`);
+        return factura;
+    } catch (error) {
+        // El pago no se revierte: solo falló la factura.
+        await consultar(db,
+            "UPDATE facturacion_ordenes SET estado='error_factura', ultimo_error=? WHERE id=?",
+            [String(error.message).slice(0, 500), orden.id]).catch(() => {});
+
+        await registrarEvento(db, {
+            ordenId: orden.id, referencia: orden.referencia,
+            fuente: 'facturacion', evento: 'factura_fallida',
+            resultado: 'error', mensaje: String(error.message).slice(0, 500),
+        });
+
+        console.error(`[factus-fact] Falló la factura de ${orden.referencia}:`, error.message);
+        return { error: error.message };
+    }
 }
 
 // Registrar un evento. La clave única (fuente, referencia, evento) hace

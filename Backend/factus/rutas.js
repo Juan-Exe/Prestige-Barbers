@@ -94,6 +94,16 @@ function construirRutas({ db, verificarToken }) {
             .optional({ nullable: true })
             .isInt({ min: 1 })
             .withMessage('reserva_id inválido'),
+        // Documento del comprador: la DIAN lo exige para facturar.
+        body('documento')
+            .optional({ checkFalsy: true })
+            .trim()
+            .matches(/^[0-9]{5,15}$/)
+            .withMessage('El documento debe tener entre 5 y 15 dígitos, sin puntos ni guiones'),
+        body('tipo_documento')
+            .optional({ checkFalsy: true })
+            .isIn(['13', '31', '22', '41'])
+            .withMessage('Tipo de documento inválido'),
 
         async (req, res) => {
             if (errores(req, res)) return;
@@ -103,7 +113,8 @@ function construirRutas({ db, verificarToken }) {
                 // cuerpo de la petición.
                 const filas = await new Promise((resolve, reject) => {
                     db.query(
-                        'SELECT id, nombre_completo, email, telefono FROM usuarios WHERE id = ?',
+                        'SELECT id, nombre_completo, email, telefono, ' +
+                        'tipo_documento, documento, direccion FROM usuarios WHERE id = ?',
                         [req.userId],
                         (err, r) => (err ? reject(err) : resolve(r))
                     );
@@ -118,6 +129,29 @@ function construirRutas({ db, verificarToken }) {
 
                 const usuario = filas[0];
 
+                // El documento llega en la petición o ya está en el perfil.
+                const documento = (req.body.documento || '').trim() || usuario.documento;
+                const tipoDocumento = req.body.tipo_documento || usuario.tipo_documento || '13';
+
+                if (!documento) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Necesitamos tu número de documento para emitir la factura',
+                        requiere_documento: true,
+                    });
+                }
+
+                // Si es nuevo, se guarda para no pedirlo en cada compra.
+                if (documento !== usuario.documento) {
+                    await new Promise((resolve) => {
+                        db.query(
+                            'UPDATE usuarios SET documento = ?, tipo_documento = ? WHERE id = ?',
+                            [documento, tipoDocumento, usuario.id],
+                            () => resolve()
+                        );
+                    });
+                }
+
                 const resultado = await ordenes.crearOrden(db, {
                     usuarioId: usuario.id,
                     reservaId: req.body.reserva_id || null,
@@ -125,6 +159,9 @@ function construirRutas({ db, verificarToken }) {
                         nombre: usuario.nombre_completo,
                         email: usuario.email,
                         telefono: usuario.telefono,
+                        tipo_documento: tipoDocumento,
+                        documento,
+                        direccion: usuario.direccion,
                     },
                     items: req.body.items,
                 });

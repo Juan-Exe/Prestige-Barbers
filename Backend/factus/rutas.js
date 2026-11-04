@@ -271,13 +271,40 @@ function construirRutas({ db, verificarToken }) {
         try {
             const filas = await new Promise((resolve, reject) => {
                 db.query(`
-                    SELECT referencia, tipo, estado, total, created_at
+                    SELECT id, referencia, tipo, estado, total, reserva_id,
+                           factus_number, factus_cufe, factus_public_url,
+                           factus_validated_at, pay_paid_at, created_at
                       FROM facturacion_ordenes
                      WHERE usuario_id = ?
                      ORDER BY id DESC
                      LIMIT 50
                 `, [req.userId], (err, r) => (err ? reject(err) : resolve(r)));
             });
+
+            // Los ítems de todas las órdenes en una sola consulta, para
+            // no hacer una por cada una.
+            const ids = filas.map((o) => o.id);
+            let items = [];
+            if (ids.length > 0) {
+                items = await new Promise((resolve, reject) => {
+                    db.query(
+                        'SELECT orden_id, nombre, cantidad, precio_bruto_unitario, total_linea ' +
+                        'FROM facturacion_orden_items WHERE orden_id IN (?)',
+                        [ids],
+                        (err, r) => (err ? reject(err) : resolve(r))
+                    );
+                });
+            }
+
+            const porOrden = {};
+            for (const i of items) {
+                (porOrden[i.orden_id] = porOrden[i.orden_id] || []).push({
+                    nombre: i.nombre,
+                    cantidad: Number(i.cantidad),
+                    precio: Number(i.precio_bruto_unitario).toFixed(2),
+                    total: Number(i.total_linea).toFixed(2),
+                });
+            }
 
             return res.json({
                 success: true,
@@ -286,7 +313,16 @@ function construirRutas({ db, verificarToken }) {
                     tipo: o.tipo,
                     estado: o.estado,
                     total: Number(o.total).toFixed(2),
+                    reserva_id: o.reserva_id,
                     creada_en: o.created_at,
+                    pagada_en: o.pay_paid_at,
+                    items: porOrden[o.id] || [],
+                    factura: o.factus_number ? {
+                        numero: o.factus_number,
+                        cufe: o.factus_cufe,
+                        public_url: o.factus_public_url,
+                        validada_en: o.factus_validated_at,
+                    } : null,
                 })),
             });
         } catch (error) {

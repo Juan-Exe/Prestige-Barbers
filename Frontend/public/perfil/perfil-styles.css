@@ -572,3 +572,188 @@ footer p {
     color: #1b1b1b;
     font-size: 0.95rem;
 }
+
+/* ==================== MIS COMPRAS ==================== */
+.compras-cargando,
+.compras-vacio {
+    padding: 30px 20px;
+    text-align: center;
+    color: #666;
+    font-size: 0.95rem;
+}
+
+.compra-card {
+    border: 1px solid #1b1b1b;
+    background: white;
+    margin-bottom: 30px;
+}
+
+.compra-card:last-child {
+    margin-bottom: 0;
+}
+
+.compra-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 15px 20px;
+    background: #f9f9f9;
+    border-bottom: 1px solid #1b1b1b;
+}
+
+.compra-referencia {
+    font-family: "Courier New", monospace;
+    font-size: 0.88rem;
+    color: #1b1b1b;
+    letter-spacing: 0.5px;
+}
+
+.compra-estado {
+    padding: 5px 15px;
+    border: 1px solid #1b1b1b;
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+}
+
+.estado-facturada,
+.estado-pagada {
+    background: #1b1b1b;
+    color: white;
+}
+
+.estado-recaudo_pendiente,
+.estado-creada {
+    background: #e0e0e0;
+    color: #1b1b1b;
+}
+
+.estado-fallida,
+.estado-expirada,
+.estado-anulada {
+    background: #666;
+    color: white;
+}
+
+.estado-error_factura {
+    background: white;
+    color: #1b1b1b;
+}
+
+.compra-body {
+    padding: 20px;
+}
+
+.compra-items {
+    list-style: none;
+    margin: 0 0 14px;
+    padding: 0;
+}
+
+.compra-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 7px 0;
+    font-size: 0.93rem;
+    color: #333;
+    border-bottom: 1px solid #f1f1f1;
+}
+
+.compra-item:last-child {
+    border-bottom: none;
+}
+
+.compra-total {
+    display: flex;
+    justify-content: space-between;
+    padding: 12px 0;
+    border-top: 1px solid #1b1b1b;
+    font-size: 1.02rem;
+    color: #1b1b1b;
+}
+
+/* ---- Factura ---- */
+.compra-factura {
+    margin: 16px 0 0;
+    padding: 15px;
+    background: #f9f9f9;
+    border: 1px solid #1b1b1b;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.compra-factura-espera {
+    color: #666;
+    font-size: 0.88rem;
+    border-color: #e0e0e0;
+}
+
+.compra-factura-etiqueta {
+    font-size: 0.73rem;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: #666;
+}
+
+.compra-factura-numero {
+    font-size: 1.05rem;
+    color: #1b1b1b;
+    letter-spacing: 0.5px;
+}
+
+.compra-cufe {
+    font-family: "Courier New", monospace;
+    font-size: 0.71rem;
+    color: #999;
+    word-break: break-all;
+}
+
+.compra-ver-factura {
+    margin-top: 4px;
+    font-size: 0.86rem;
+    color: #1b1b1b;
+    text-decoration: underline;
+}
+
+.compra-ver-factura:hover {
+    opacity: 0.65;
+}
+
+.compra-fecha {
+    margin: 14px 0 0;
+    font-size: 0.8rem;
+    color: #999;
+}
+
+/* ---- Factura dentro de una reserva ---- */
+.reserva-factura {
+    display: none;
+}
+
+.reserva-factura-visible {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-top: 14px;
+    padding: 13px 15px;
+    background: #f9f9f9;
+    border-left: 3px solid #1b1b1b;
+}
+
+.reserva-pago-pendiente {
+    font-size: 0.85rem;
+    color: #666;
+}
+
+@media (max-width: 560px) {
+    .compra-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}

@@ -44,3 +44,13 @@ credenciales*
 *.pem
 *.key
 id_rsa*
+
+# Tokens de integraciones MCP
+.mcp.local.json
+
+# Config MCP local: contiene el token de Notion
+.mcp.json
+
+# Video: los MP4 exportados pesan y se regeneran con el motor
+animaciones/exportado/
+animaciones/.fotogramas/

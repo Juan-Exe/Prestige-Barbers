@@ -1,0 +1,828 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planos Penta sys 4.0</title>
+<style>
+    :root {
+        --tinta: #1b1b1b;
+        --papel: #ffffff;
+        --borde: #e0e0e0;
+        --apagado: #666;
+    }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0;
+        padding: 28px;
+        background: #f5f5f5;
+        font-family: "Montserrat", system-ui, sans-serif;
+        color: var(--tinta);
+    }
+    h1 {
+        margin: 0 0 4px;
+        font-size: 1.15rem;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+    }
+    .sub { margin: 0 0 22px; color: var(--apagado); font-size: .86rem; }
+
+    #lienzo {
+        display: block;
+        width: 100%;
+        max-width: 960px;
+        background: #000;
+        border: 1px solid var(--tinta);
+    }
+
+    /* El exportador activa esta clase: el lienzo pasa a ocupar la
+       ventana entera a 1920x1080 exactos, sin nada alrededor. Así la
+       captura sale limpia, sin la interfaz. */
+    body.exportando {
+        padding: 0;
+        background: #000;
+        overflow: hidden;
+    }
+    body.exportando > *:not(#lienzo) { display: none !important; }
+    body.exportando #lienzo {
+        max-width: none;
+        width: 1920px;
+        height: 1080px;
+        border: none;
+    }
+
+    .fila { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; align-items: center; }
+
+    button {
+        padding: 9px 16px;
+        font-family: inherit;
+        font-size: .84rem;
+        font-weight: 600;
+        background: var(--papel);
+        color: var(--tinta);
+        border: 1px solid var(--tinta);
+        cursor: pointer;
+        transition: all .25s ease;
+    }
+    button:hover { background: var(--tinta); color: var(--papel); }
+    button.activo { background: var(--tinta); color: var(--papel); }
+
+    #barra {
+        width: 100%;
+        max-width: 960px;
+        height: 4px;
+        background: var(--borde);
+        margin: 10px 0 4px;
+    }
+    #progreso { height: 100%; background: var(--tinta); width: 0; }
+
+    #reloj {
+        font-family: "Courier New", monospace;
+        font-size: .82rem;
+        color: var(--apagado);
+    }
+
+    table { border-collapse: collapse; margin-top: 22px; font-size: .84rem; }
+    th, td { padding: 7px 14px; border-bottom: 1px solid var(--borde); text-align: left; }
+    th { text-transform: uppercase; font-size: .72rem; letter-spacing: .6px; color: var(--apagado); }
+    td.num { font-family: "Courier New", monospace; }
+
+    .aviso {
+        margin-top: 20px; padding: 13px 16px;
+        background: #fff; border-left: 3px solid var(--tinta);
+        font-size: .83rem; line-height: 1.55; max-width: 960px;
+    }
+</style>
+</head>
+<body>
+
+<h1>Planos &mdash; Penta&#123;sys&#125;4.0</h1>
+<p class="sub">Intro de la sustentaci&oacute;n &middot; 1920&times;1080 &middot; 30 fps</p>
+
+<canvas id="lienzo" width="1920" height="1080"></canvas>
+
+<div id="barra"><div id="progreso"></div></div>
+<div id="reloj">00.00 / 00.00</div>
+
+<div class="fila" id="botonesPlanos"></div>
+
+<div class="fila">
+    <button id="btnPlay">Reproducir</button>
+    <button id="btnRepetir">&#8635; Repetir</button>
+    <button id="btnTodo">Secuencia completa</button>
+</div>
+
+<table id="tabla">
+    <thead><tr><th>Plano</th><th>Contenido</th><th>Duraci&oacute;n</th><th>Para narrar</th></tr></thead>
+    <tbody></tbody>
+</table>
+
+<div class="aviso">
+    <strong>Para exportar en calidad de edici&oacute;n:</strong> desde esta carpeta,
+    <code>node exportar.cjs</code> para todos los planos, o
+    <code>node exportar.cjs 1</code> para uno solo.
+    Produce MP4 con framerate constante y todos los fotogramas clave, que es
+    lo que necesitan DaVinci Resolve y Premiere.
+</div>
+
+<script>
+// =====================================================================
+//  Motor de planos
+//
+//  Cada plano es una función que, dado un instante t, dibuja cómo se ve
+//  la escena EN ESE INSTANTE. No "va animando": es consultable en
+//  cualquier punto, y de ahí sale la exportación exacta fotograma a
+//  fotograma.
+// =====================================================================
+
+var cv = document.getElementById('lienzo');
+var g  = cv.getContext('2d');
+var W = 1920, H = 1080;
+
+// ---- Paleta ----
+// Negro y blanco del logo, que coinciden con los de Prestige Barbers.
+var C = {
+    fondo:   '#000000',
+    tinta:   '#1b1b1b',
+    trazo:   '#ffffff',
+    tenue:   'rgba(255,255,255,0.38)',
+    debil:   'rgba(255,255,255,0.16)',
+    alerta:  '#d84a3f',
+    exito:   '#3fa96b'
+};
+
+var SANS = '"Montserrat", system-ui, sans-serif';
+var SERIF = 'Georgia, "Times New Roman", serif';
+var MONO = '"Courier New", monospace';
+
+// ---- Utilidades de tiempo ----
+function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+
+// Cuánto ha progresado algo que empieza en `ini` y tarda `dur`.
+// Satura en 1 y ahí se queda: por eso un plano puede durar más que su
+// construcción sin que nada se mueva de más.
+function ven(t, ini, dur) { return clamp((t - ini) / dur, 0, 1); }
+
+function easeOut(t)   { return 1 - Math.pow(1 - t, 3); }
+function easeInOut(t) { return t < .5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3) / 2; }
+function easeBack(t)  { var c = 2.70158; return 1 + (c+1)*Math.pow(t-1,3) + c*Math.pow(t-1,2); }
+
+// ---- Dibujo ----
+function fondo(color) {
+    g.fillStyle = color || C.fondo;
+    g.fillRect(0, 0, W, H);
+}
+
+function texto(str, x, y, o) {
+    o = o || {};
+    g.save();
+    g.font = (o.peso || 600) + ' ' + (o.tam || 40) + 'px ' + (o.fuente || SANS);
+    g.fillStyle = o.color || C.trazo;
+    g.textAlign = o.align || 'center';
+    g.textBaseline = o.base || 'middle';
+    g.globalAlpha = o.alpha === undefined ? 1 : o.alpha;
+
+    if (o.espaciado) {
+        // Canvas no tiene letter-spacing: se dibuja letra a letra.
+        var s = String(str), total = 0, i;
+        for (i = 0; i < s.length; i++) total += g.measureText(s[i]).width + o.espaciado;
+        total -= o.espaciado;
+        var px = o.align === 'left' ? x : (o.align === 'right' ? x - total : x - total/2);
+        g.textAlign = 'left';
+        for (i = 0; i < s.length; i++) {
+            g.fillText(s[i], px, y);
+            px += g.measureText(s[i]).width + o.espaciado;
+        }
+    } else {
+        g.fillText(String(str), x, y);
+    }
+    g.restore();
+}
+
+function ancho(str, o) {
+    o = o || {};
+    g.save();
+    g.font = (o.peso || 600) + ' ' + (o.tam || 40) + 'px ' + (o.fuente || SANS);
+    var w = g.measureText(String(str)).width;
+    if (o.espaciado) w += o.espaciado * String(str).length;
+    g.restore();
+    return w;
+}
+
+// Línea que se dibuja progresivamente, de 0 a 1.
+function lineaProgresiva(x1, y1, x2, y2, p, o) {
+    o = o || {};
+    if (p <= 0) return;
+    g.save();
+    g.strokeStyle = o.color || C.trazo;
+    g.lineWidth = o.grosor || 3;
+    g.lineCap = o.cap || 'round';
+    g.globalAlpha = o.alpha === undefined ? 1 : o.alpha;
+    if (o.brillo) {
+        g.shadowColor = o.color || C.trazo;
+        g.shadowBlur = o.brillo;
+    }
+    g.beginPath();
+    g.moveTo(x1, y1);
+    g.lineTo(x1 + (x2 - x1) * p, y1 + (y2 - y1) * p);
+    g.stroke();
+    g.restore();
+}
+
+// =====================================================================
+//  EL LOGO
+//
+//  Pentágono con el vértice superior aplanado y cinco radios que
+//  convergen en el centro, como en "Logo Hakaton minmal.png".
+//  Se reconstruye con geometría en vez de cargar el PNG, para poder
+//  dibujarlo trazo a trazo y a cualquier escala sin pixelar.
+// =====================================================================
+function verticesPentagono(cx, cy, r) {
+    var v = [];
+    // -90° pone un vértice arriba; el logo tiene el lado superior
+    // horizontal, así que se gira 36° (media vuelta de sector).
+    for (var i = 0; i < 5; i++) {
+        var a = (-90 + 36 + i * 72) * Math.PI / 180;
+        v.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
+    }
+    return v;
+}
+
+// p: progreso del contorno (0-1). q: progreso de los radios (0-1).
+function dibujaLogo(cx, cy, r, p, q, o) {
+    o = o || {};
+    var v = verticesPentagono(cx, cy, r);
+    var grosor = o.grosor || 3;
+    var brillo = o.brillo === undefined ? 14 : o.brillo;
+
+    // Contorno: cinco lados que se dibujan en cadena.
+    var porLado = 1 / 5;
+    for (var i = 0; i < 5; i++) {
+        var ini = i * porLado;
+        var pl = clamp((p - ini) / porLado, 0, 1);
+        if (pl <= 0) break;
+        var a = v[i], b = v[(i + 1) % 5];
+        lineaProgresiva(a.x, a.y, b.x, b.y, pl,
+            { grosor: grosor, brillo: brillo, alpha: o.alpha });
+    }
+
+    // Radios: salen del centro hacia cada vértice, todos a la vez pero
+    // escalonados para que no parezca mecánico.
+    for (var j = 0; j < 5; j++) {
+        var iniR = j * 0.07;
+        var pr = clamp((q - iniR) / (1 - 0.28), 0, 1);
+        if (pr <= 0) continue;
+        lineaProgresiva(cx, cy, v[j].x, v[j].y, easeOut(pr),
+            { grosor: grosor * 0.92, brillo: brillo, alpha: o.alpha });
+    }
+}
+
+// =====================================================================
+//  LOS PLANOS
+// =====================================================================
+var PLANOS = [
+
+// ---------------------------------------------------------------------
+// 01 — Marca. El logo se construye trazo a trazo.
+// ---------------------------------------------------------------------
+{
+    id: 1, titulo: 'Marca', dur: 8, sostiene: 5.6,
+    narra: 'Somos Penta sys 4.0',
+    dibuja: function (t) {
+        fondo();
+
+        var cx = W / 2, cy = 470, r = 250;
+
+        // El contorno entra primero, luego los radios.
+        var pContorno = easeInOut(ven(t, 0.3, 2.2));
+        var pRadios   = ven(t, 1.8, 2.0);
+
+        dibujaLogo(cx, cy, r, pContorno, pRadios, { grosor: 3.2, brillo: 16 });
+
+        // El bloque SYS aparece cuando los radios ya convergieron.
+        var pSys = ven(t, 3.2, 0.7);
+        if (pSys > 0) {
+            var e = easeBack(pSys);
+            g.save();
+            g.globalAlpha = clamp(pSys * 1.6, 0, 1);
+            var bw = 188 * e, bh = 74 * e;
+            g.fillStyle = C.trazo;
+            g.fillRect(cx - bw/2, cy - bh/2, bw, bh);
+            if (pSys > 0.45) {
+                texto('SYS', cx, cy + 2, {
+                    tam: 54 * e, peso: 400, fuente: SERIF, color: '#000',
+                    alpha: clamp((pSys - 0.45) * 3, 0, 1)
+                });
+            }
+            g.restore();
+        }
+
+        // HKNT sobre el bloque.
+        var pHknt = ven(t, 3.9, 0.5);
+        if (pHknt > 0) {
+            texto('HKNT', cx, cy - 62, {
+                tam: 21, peso: 400, fuente: SERIF,
+                espaciado: 3, alpha: easeOut(pHknt)
+            });
+        }
+
+        // Nombre del equipo.
+        var pNom = ven(t, 4.3, 0.8);
+        if (pNom > 0) {
+            var dy = (1 - easeOut(pNom)) * 22;
+            texto('PENTA{SYS}4.0', cx, 810 + dy, {
+                tam: 62, peso: 700, espaciado: 7, alpha: easeOut(pNom)
+            });
+        }
+
+        var pSub = ven(t, 4.9, 0.7);
+        if (pSub > 0) {
+            texto('System-SpecificParameters  v4.0', cx, 872, {
+                tam: 21, peso: 400, fuente: SERIF,
+                color: C.tenue, alpha: easeOut(pSub)
+            });
+        }
+    }
+},
+
+// ---------------------------------------------------------------------
+// 02 — El problema. El botón que no cobraba.
+// ---------------------------------------------------------------------
+{
+    id: 2, titulo: 'El problema', dur: 9, sostiene: 6.4,
+    narra: 'Prestige Barbers tenía tienda, pero no cobraba',
+    dibuja: function (t) {
+        fondo();
+
+        // Rótulo de sección.
+        var pRot = ven(t, 0.2, 0.6);
+        if (pRot > 0) {
+            texto('EL PROBLEMA', W/2, 150, {
+                tam: 19, peso: 600, espaciado: 6,
+                color: C.tenue, alpha: easeOut(pRot)
+            });
+        }
+
+        // El botón "Comprar Ahora", tal como estaba en el sitio.
+        var pBtn = ven(t, 0.7, 0.8);
+        if (pBtn > 0) {
+            var e = easeOut(pBtn);
+            var bw = 330, bh = 78;
+            var bx = W/2 - bw/2, by = 330;
+            g.save();
+            g.globalAlpha = e;
+            g.strokeStyle = C.trazo;
+            g.lineWidth = 2;
+            g.strokeRect(bx, by, bw, bh);
+            texto('COMPRAR AHORA', W/2, by + bh/2, {
+                tam: 25, peso: 700, espaciado: 3
+            });
+            g.restore();
+        }
+
+        // El clic.
+        var pClic = ven(t, 1.8, 0.35);
+        if (pClic > 0 && pClic < 1) {
+            g.save();
+            g.strokeStyle = C.trazo;
+            g.lineWidth = 2;
+            g.globalAlpha = 1 - pClic;
+            g.beginPath();
+            g.arc(W/2, 369, 20 + pClic * 54, 0, Math.PI * 2);
+            g.stroke();
+            g.restore();
+        }
+
+        // Lo que pasaba: un modal de éxito falso.
+        var pModal = ven(t, 2.2, 0.6);
+        if (pModal > 0) {
+            var em = easeBack(clamp(pModal, 0, 1));
+            g.save();
+            g.globalAlpha = clamp(pModal * 2, 0, 1);
+            var mw = 520 * em, mh = 180 * em;
+            var mx = W/2 - mw/2, my = 500;
+            g.fillStyle = '#ffffff';
+            g.fillRect(mx, my, mw, mh);
+            if (pModal > 0.5) {
+                var a2 = clamp((pModal - 0.5) * 2.4, 0, 1);
+                texto('COMPRA REALIZADA', W/2, my + 68, {
+                    tam: 30, peso: 700, color: '#1b1b1b', alpha: a2
+                });
+                texto('Tu compra ha sido procesada', W/2, my + 118, {
+                    tam: 19, peso: 400, color: '#666', alpha: a2
+                });
+            }
+            g.restore();
+        }
+
+        // El remate: no se cobró nada.
+        var pTacha = ven(t, 3.6, 0.5);
+        if (pTacha > 0) {
+            g.save();
+            g.strokeStyle = C.alerta;
+            g.lineWidth = 6;
+            g.lineCap = 'round';
+            g.shadowColor = C.alerta;
+            g.shadowBlur = 18;
+            var x1 = W/2 - 280, x2 = W/2 + 280, y = 590;
+            g.beginPath();
+            g.moveTo(x1, y);
+            g.lineTo(x1 + (x2 - x1) * easeOut(pTacha), y);
+            g.stroke();
+            g.restore();
+        }
+
+        var pTxt = ven(t, 4.3, 0.8);
+        if (pTxt > 0) {
+            texto('Cero pesos cobrados.', W/2, 790, {
+                tam: 46, peso: 700, alpha: easeOut(pTxt)
+            });
+        }
+        var pTxt2 = ven(t, 4.9, 0.8);
+        if (pTxt2 > 0) {
+            texto('Ninguna factura emitida.', W/2, 858, {
+                tam: 46, peso: 700, color: C.tenue, alpha: easeOut(pTxt2)
+            });
+        }
+    }
+},
+
+// ---------------------------------------------------------------------
+// 03 — Factus Pay entra en escena.
+// ---------------------------------------------------------------------
+{
+    id: 3, titulo: 'Factus Pay', dur: 8, sostiene: 5.8,
+    narra: 'Integramos Factus Pay: cobro por QR Bre-B',
+    dibuja: function (t) {
+        fondo();
+
+        var pRot = ven(t, 0.2, 0.6);
+        if (pRot > 0) {
+            texto('LA SOLUCIÓN', W/2, 130, {
+                tam: 19, peso: 600, espaciado: 6,
+                color: C.tenue, alpha: easeOut(pRot)
+            });
+        }
+
+        var pNom = ven(t, 0.6, 0.7);
+        if (pNom > 0) {
+            texto('FACTUS PAY', W/2, 212, {
+                tam: 54, peso: 700, espaciado: 5, alpha: easeOut(pNom)
+            });
+        }
+
+        // Un QR que se construye por módulos. No es un QR real: es su
+        // forma, suficiente para que se lea como tal.
+        var pQR = ven(t, 1.3, 1.6);
+        if (pQR > 0) {
+            var lado = 260, mod = 13, paso = lado / mod;
+            var qx = W/2 - lado/2, qy = 330;
+
+            g.save();
+            g.fillStyle = C.trazo;
+            // Patrón determinista: siempre dibuja el mismo QR.
+            var semilla = 7;
+            function pseudo() {
+                semilla = (semilla * 1103515245 + 12345) % 2147483648;
+                return semilla / 2147483648;
+            }
+            var celdas = [];
+            for (var fy = 0; fy < mod; fy++) {
+                for (var fx = 0; fx < mod; fx++) {
+                    var esquina =
+                        (fx < 4 && fy < 4) || (fx > mod-5 && fy < 4) || (fx < 4 && fy > mod-5);
+                    var lleno = esquina
+                        ? !(fx > 0 && fx < 3 && fy > 0 && fy < 3) &&
+                          !(fx > mod-4 && fx < mod-1 && fy > 0 && fy < 3) &&
+                          !(fx > 0 && fx < 3 && fy > mod-4 && fy < mod-1)
+                        : pseudo() > 0.52;
+                    if (lleno) celdas.push([fx, fy]);
+                }
+            }
+            // Las celdas aparecen progresivamente.
+            var cuantas = Math.floor(celdas.length * easeOut(pQR));
+            for (var k = 0; k < cuantas; k++) {
+                g.fillRect(qx + celdas[k][0]*paso, qy + celdas[k][1]*paso,
+                           paso - 1.5, paso - 1.5);
+            }
+            g.restore();
+        }
+
+        // La llave Bre-B.
+        var pLlave = ven(t, 3.0, 0.7);
+        if (pLlave > 0) {
+            texto('@FCJ6QP8CMOPRF8DV3S05', W/2, 660, {
+                tam: 26, peso: 400, fuente: MONO,
+                color: C.tenue, alpha: easeOut(pLlave)
+            });
+        }
+
+        // Los tres pasos del flujo.
+        var pasos = ['Escanea', 'Paga desde su banco', 'Confirmado'];
+        for (var i = 0; i < 3; i++) {
+            var pp = ven(t, 3.6 + i * 0.45, 0.6);
+            if (pp <= 0) continue;
+            var px = W/2 + (i - 1) * 330;
+            var e = easeOut(pp);
+
+            // Punto y línea de conexión.
+            g.save();
+            g.globalAlpha = e;
+            g.fillStyle = C.trazo;
+            g.beginPath();
+            g.arc(px, 790, 7, 0, Math.PI * 2);
+            g.fill();
+            g.restore();
+
+            if (i < 2) {
+                var pl = ven(t, 3.85 + i * 0.45, 0.4);
+                lineaProgresiva(px + 14, 790, px + 316, 790, easeOut(pl),
+                    { grosor: 1.5, color: C.debil, brillo: 0 });
+            }
+
+            texto(pasos[i], px, 840, {
+                tam: 22, peso: 600, alpha: e
+            });
+        }
+    }
+},
+
+// ---------------------------------------------------------------------
+// 04 — El resultado: factura DIAN.
+// ---------------------------------------------------------------------
+{
+    id: 4, titulo: 'Factura DIAN', dur: 9, sostiene: 6.2,
+    narra: 'Y al pagarse, la factura electrónica se emite sola',
+    dibuja: function (t) {
+        fondo();
+
+        var pRot = ven(t, 0.2, 0.6);
+        if (pRot > 0) {
+            texto('EL RESULTADO', W/2, 128, {
+                tam: 19, peso: 600, espaciado: 6,
+                color: C.tenue, alpha: easeOut(pRot)
+            });
+        }
+
+        // El tique de la factura.
+        var pDoc = ven(t, 0.6, 0.8);
+        if (pDoc > 0) {
+            var e = easeOut(pDoc);
+            var dw = 620, dh = 440;
+            var dx = W/2 - dw/2, dy = 215;
+            g.save();
+            g.globalAlpha = e;
+            g.strokeStyle = C.trazo;
+            g.lineWidth = 2;
+            g.strokeRect(dx, dy - (1-e)*18, dw, dh);
+            g.restore();
+
+            texto('FACTURA ELECTRÓNICA DE VENTA', W/2, dy + 52, {
+                tam: 17, peso: 600, espaciado: 3,
+                color: C.tenue, alpha: e
+            });
+
+            // Número de factura real de las pruebas.
+            var pNum = ven(t, 1.4, 0.6);
+            if (pNum > 0) {
+                texto('SETP990033441', W/2, dy + 112, {
+                    tam: 44, peso: 700, alpha: easeOut(pNum)
+                });
+            }
+
+            // Desglose que exige el Art. 617.
+            var filas = [
+                ['Base gravable', '$34.370'],
+                ['IVA 19%',       '$6.530'],
+                ['Total',         '$40.900']
+            ];
+            for (var i = 0; i < filas.length; i++) {
+                var pf = ven(t, 2.0 + i * 0.3, 0.5);
+                if (pf <= 0) continue;
+                var fy = dy + 190 + i * 52;
+                var af = easeOut(pf);
+                texto(filas[i][0], dx + 52, fy, {
+                    tam: 21, peso: 400, align: 'left',
+                    color: C.tenue, alpha: af
+                });
+                texto(filas[i][1], dx + dw - 52, fy, {
+                    tam: 21, peso: i === 2 ? 700 : 400, align: 'right',
+                    alpha: af
+                });
+                if (i === 1) {
+                    lineaProgresiva(dx + 52, fy + 26, dx + dw - 52, fy + 26,
+                        af, { grosor: 1, color: C.debil, brillo: 0 });
+                }
+            }
+
+            // CUFE.
+            var pCufe = ven(t, 3.2, 0.7);
+            if (pCufe > 0) {
+                texto('CUFE', W/2, dy + 356, {
+                    tam: 14, peso: 600, espaciado: 2.5,
+                    color: C.tenue, alpha: easeOut(pCufe)
+                });
+                texto('28dfd7d0b98414869670c9dae4ac58d5…', W/2, dy + 386, {
+                    tam: 15, peso: 400, fuente: MONO,
+                    color: C.tenue, alpha: easeOut(pCufe)
+                });
+            }
+        }
+
+        // Sello de validación.
+        var pSello = ven(t, 4.0, 0.6);
+        if (pSello > 0) {
+            var es = easeBack(clamp(pSello, 0, 1));
+            g.save();
+            g.globalAlpha = clamp(pSello * 2, 0, 1);
+            g.strokeStyle = C.exito;
+            g.lineWidth = 3;
+            g.shadowColor = C.exito;
+            g.shadowBlur = 14;
+            var sr = 34 * es;
+            g.beginPath();
+            g.arc(W/2 - 212, 742, sr, 0, Math.PI * 2);
+            g.stroke();
+            // El visto.
+            if (pSello > 0.5) {
+                var av = clamp((pSello - 0.5) * 2.4, 0, 1);
+                g.globalAlpha = av;
+                g.lineWidth = 4;
+                g.beginPath();
+                g.moveTo(W/2 - 226, 742);
+                g.lineTo(W/2 - 216, 753);
+                g.lineTo(W/2 - 197, 730);
+                g.stroke();
+            }
+            g.restore();
+
+            texto('Validada por la DIAN', W/2 - 50, 742, {
+                tam: 27, peso: 600, align: 'left',
+                alpha: clamp(pSello * 2, 0, 1)
+            });
+        }
+
+        // Cierre con la marca.
+        var pCierre = ven(t, 5.0, 0.9);
+        if (pCierre > 0) {
+            var ac = easeOut(pCierre);
+            // Logo y nombre centrados como un bloque: se mide el texto
+            // para repartir el ancho total, en vez de suponerlo.
+            var anchoNom = ancho('PENTA{SYS}4.0', { tam: 30, peso: 700, espaciado: 4 });
+            var bloque = 92 + 34 + anchoNom;
+            var x0 = W/2 - bloque/2;
+            dibujaLogo(x0 + 46, 905, 42, 1, 1,
+                { grosor: 1.6, brillo: 8, alpha: ac * 0.75 });
+            texto('PENTA{SYS}4.0', x0 + 92 + 34, 905, {
+                tam: 30, peso: 700, espaciado: 4,
+                align: 'left', alpha: ac
+            });
+        }
+    }
+}
+
+];
+
+// =====================================================================
+//  Reproducción y exportación
+// =====================================================================
+var planoActual = 0;
+var t0 = 0;
+var reproduciendo = false;
+var modoSecuencia = false;
+
+function pinta(idx, t) {
+    var p = PLANOS[idx];
+    g.clearRect(0, 0, W, H);
+    p.dibuja(clamp(t, 0, p.dur));
+}
+
+function bucle() {
+    if (!reproduciendo) return;
+    var t = (performance.now() - t0) / 1000;
+    var p = PLANOS[planoActual];
+
+    if (t >= p.dur) {
+        if (modoSecuencia && planoActual < PLANOS.length - 1) {
+            planoActual++;
+            t0 = performance.now();
+            marcaBoton();
+            requestAnimationFrame(bucle);
+            return;
+        }
+        reproduciendo = false;
+        pinta(planoActual, p.dur);
+        actualizaReloj(p.dur, p.dur);
+        document.getElementById('btnPlay').textContent = 'Reproducir';
+        return;
+    }
+
+    pinta(planoActual, t);
+    actualizaReloj(t, p.dur);
+    requestAnimationFrame(bucle);
+}
+
+function actualizaReloj(t, dur) {
+    document.getElementById('progreso').style.width = (t / dur * 100) + '%';
+    document.getElementById('reloj').textContent =
+        t.toFixed(2).padStart(5, '0') + ' / ' + dur.toFixed(2).padStart(5, '0');
+}
+
+function arranca(desde) {
+    reproduciendo = true;
+    t0 = performance.now() - (desde || 0) * 1000;
+    document.getElementById('btnPlay').textContent = 'Pausa';
+    requestAnimationFrame(bucle);
+}
+
+function marcaBoton() {
+    var bs = document.querySelectorAll('#botonesPlanos button');
+    for (var i = 0; i < bs.length; i++) {
+        bs[i].classList.toggle('activo', i === planoActual);
+    }
+}
+
+// Botones de planos
+var cont = document.getElementById('botonesPlanos');
+PLANOS.forEach(function (p, i) {
+    var b = document.createElement('button');
+    b.textContent = String(p.id).padStart(2, '0') + ' · ' + p.titulo;
+    b.addEventListener('click', function () {
+        planoActual = i;
+        modoSecuencia = false;
+        marcaBoton();
+        arranca(0);
+    });
+    cont.appendChild(b);
+});
+
+document.getElementById('btnPlay').addEventListener('click', function () {
+    if (reproduciendo) {
+        reproduciendo = false;
+        this.textContent = 'Reproducir';
+    } else {
+        arranca(0);
+    }
+});
+
+// Repetir desde el punto de sostenido: no hay que ver cómo se arma todo
+// otra vez para ensayar el dictado.
+document.getElementById('btnRepetir').addEventListener('click', function () {
+    var p = PLANOS[planoActual];
+    modoSecuencia = false;
+    arranca(p.sostiene || 0);
+});
+
+document.getElementById('btnTodo').addEventListener('click', function () {
+    planoActual = 0;
+    modoSecuencia = true;
+    marcaBoton();
+    arranca(0);
+});
+
+// Tabla
+var tb = document.querySelector('#tabla tbody');
+var totalDur = 0;
+PLANOS.forEach(function (p) {
+    totalDur += p.dur;
+    var tr = document.createElement('tr');
+    tr.innerHTML = '<td class="num">' + String(p.id).padStart(2, '0') + '</td>' +
+        '<td>' + p.titulo + '</td>' +
+        '<td class="num">' + p.dur + ' s</td>' +
+        '<td>' + (p.narra || '') + '</td>';
+    tb.appendChild(tr);
+});
+var trTotal = document.createElement('tr');
+trTotal.innerHTML = '<td></td><td><strong>Total</strong></td>' +
+    '<td class="num"><strong>' + totalDur + ' s</strong></td><td></td>';
+tb.appendChild(trTotal);
+
+// ---- API para el exportador ----
+// El exportador pide un instante exacto y lee el lienzo. Nada de grabar
+// en tiempo real: el instante 1.4667 s es el fotograma 44 de 30 fps,
+// calculado, no capturado.
+window.planos = {
+    cuantos: PLANOS.length,
+    // El exportador llama a esto antes de capturar: oculta la interfaz
+    // y deja el lienzo a tamaño real.
+    modoExportacion: function () {
+        document.body.classList.add('exportando');
+        return true;
+    },
+    info: function (i) {
+        var p = PLANOS[i];
+        return { id: p.id, titulo: p.titulo, dur: p.dur };
+    },
+    fotograma: function (i, t) {
+        pinta(i, t);
+        return true;
+    }
+};
+
+// Primer fotograma
+pinta(0, 0);
+marcaBoton();
+actualizaReloj(0, PLANOS[0].dur);
+</script>
+</body>
+</html>

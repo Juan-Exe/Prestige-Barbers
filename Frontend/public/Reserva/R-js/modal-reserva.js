@@ -612,6 +612,15 @@ class ReservaModalController {
 
             if (barberosAmbos.length === 0) {
                 console.error('❌ [BARBER-SELECTOR] No hay barberos tipo "Ambos" disponibles');
+                // Sin este aviso el modal se quedaba en "Ningun barbero
+                // seleccionado" y sin selector, sin explicar por que.
+                const nombreEl = document.getElementById('modalBarberName');
+                if (nombreEl) {
+                    nombreEl.textContent = 'Ningún profesional atiende corte y barba a la vez. Quita el servicio adicional para continuar.';
+                    nombreEl.style.display = 'block';
+                    nombreEl.style.color = '#b00';
+                    nombreEl.style.fontWeight = '500';
+                }
                 return;
             }
 

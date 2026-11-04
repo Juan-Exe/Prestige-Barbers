@@ -8,14 +8,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     // Si hay sesión, cargar todo
-    cargarDatosUsuario();
     inicializarTabs();
     inicializarEdicion();
     mostrarBadgeEnHeader(); // Mostrar badge en el header
 
-    // Precargar las reservas sin esperar al clic en la pestana: si la pestana
-    // ya viene activa (o el usuario llega con #reservas) el contenido ya esta.
-    cargarMisReservas();
+    // Las reservas se cargan DESPUES de tener los datos del usuario:
+    // necesitan el id, y si se lanzan en paralelo pueden encontrarse
+    // user_data todavia sin escribir y marcar la pestana como vacia.
+    cargarDatosUsuario().then(() => cargarMisReservas(true));
 
     // Permitir enlazar directamente a la pestana con /perfil/#reservas
     if (window.location.hash === '#reservas') {
@@ -186,9 +186,11 @@ function inicializarTabs() {
                 tabContent.classList.add('active');
             }
 
-            // Cargar las reservas la primera vez que se abre la pestana
+            // Al abrir la pestana se recargan siempre: asi un fallo puntual
+            // (por ejemplo, abrir antes de tener los datos del usuario) no
+            // deja la pestana vacia para el resto de la sesion.
             if (tabName === 'reservas') {
-                cargarMisReservas();
+                cargarMisReservas(true);
             }
         });
     });

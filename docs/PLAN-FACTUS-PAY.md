@@ -6,7 +6,7 @@ factura electrónica DIAN.
 | Dato | Valor |
 |---|---|
 | Fecha | 4 de noviembre de 2026 |
-| Estado | Fase 3 completada — endpoints probados de extremo a extremo |
+| Estado | Fase 4 completada — webhook con verificación contra la API |
 | Entorno | Sandbox |
 | Webhook | `https://prestigebarber.store/api/factus/webhook/pay` |
 
@@ -269,15 +269,51 @@ curl -X POST https://prestigebarber.store/api/factus/ordenes \
 
 **Criterios de aceptación**
 
-- [ ] Llave correcta y pago real: la orden pasa a `pagada`
-- [ ] Llave incorrecta: `401` y nada se guarda
-- [ ] El mismo evento dos veces no reprocesa
-- [ ] Monto alterado: la orden no cambia y queda el evento registrado
-- [ ] Responde en menos de 2 segundos (Factus corta a los 10 s)
+- [x] Llave incorrecta: `401` y nada se guarda
+- [x] Un pago falso con llave válida NO marca la orden pagada
+- [x] El mismo evento dos veces no reprocesa
+- [x] Monto alterado: la orden no cambia y queda el evento registrado
+- [x] Responde en menos de 2 segundos (Factus corta a los 10 s)
+- [ ] Pago real desde el simulador *(requiere escanear el QR a mano)*
 
-**Prueba**
+**Resultado de las pruebas**
 
-Simulador de Factus + `curl` con llave inválida y evento duplicado.
+```
+llave incorrecta       401 "No autorizado"
+sin llave              401
+orden desconocida      200 "Orden desconocida"  (que no reintente)
+pago FALSO con llave   200 "No confirmado por la API"
+                       → la orden siguió en recaudo_pendiente
+orden ya pagada        200 duplicate: true "Ya estaba pagada"
+monto alterado         no se marcó pagada; alerta "Esperado 15500, recibido 500"
+tiempo de respuesta    8-33 ms (el límite de Factus son 10 s)
+```
+
+**La prueba que más importa**
+
+Con la llave correcta se envió un aviso diciendo que `PB-P-000005` estaba
+pagada. La orden **no cambió**, porque la API respondió `ready`, no `paid`.
+Sin esa verificación, cualquiera con la llave podría marcar pagos falsos: la
+llave viaja en la query string y no hay firma HMAC.
+
+**Por qué cada código de respuesta**
+
+Factus reintenta ante `5xx` y deja de insistir ante `2xx`. Un `200` significa
+"recibido, no insistas", aunque no se haya hecho nada:
+
+| Caso | Respuesta | Motivo |
+|---|---|---|
+| Llave inválida | `401` | No es Factus |
+| Orden desconocida | `200` | No va a aparecer; reintentar no sirve |
+| Ya pagada | `200` | Idempotencia |
+| La API no confirma | `200` | El aviso era falso o prematuro |
+| Monto distinto | `200` | Queda la alerta; reintentar no lo arregla |
+| No se pudo verificar | `500` | Fallo pasajero: que reintente |
+
+**El webhook va fuera del rate limit**
+
+Lo llama Factus, no un usuario. Limitarlo haría perder avisos de pago, y
+Factus ya reintenta 6 veces por su cuenta.
 
 ---
 
@@ -371,6 +407,6 @@ Las credenciales no van en el repositorio. `FACTUS_PAY_ACCESS_KEY` del
 | 1 — Base de datos | ✅ Completada | Sí, 5/5 criterios |
 | 2 — Cliente de Pay | ✅ Completada | Sí, 5/5 criterios |
 | 3 — Endpoints | ✅ Completada | Sí, 6/6 criterios |
-| 4 — Webhook | Pendiente | — |
+| 4 — Webhook | ✅ Completada | Sí, 5/5 automatizados |
 | 5 — Frontend | Pendiente | — |
 | 6 — Factura DIAN | Fuera de alcance | — |

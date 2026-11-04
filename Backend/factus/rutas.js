@@ -11,9 +11,22 @@ const rateLimit = require('express-rate-limit');
 const { body, param, validationResult } = require('express-validator');
 
 const ordenes = require('./ordenes');
+const webhook = require('./webhook');
 
 function construirRutas({ db, verificarToken }) {
     const router = express.Router();
+
+    // -----------------------------------------------------------------
+    //  POST /api/factus/webhook/pay
+    //
+    //  Va ANTES del rate limit y sin JWT: lo llama Factus, no un
+    //  usuario. Limitarlo haría que se perdieran avisos de pago, y
+    //  Factus ya reintenta hasta 6 veces por su cuenta.
+    //
+    //  Se autentica con la llave de la query string, y aun así nada se
+    //  da por pagado sin verificarlo contra la API.
+    // -----------------------------------------------------------------
+    router.post('/webhook/pay', webhook.construirManejador(db));
 
     // Límite propio para estas rutas: crear recaudos cuesta dinero
     // ($800 + IVA por transacción), así que nadie debe poder generarlos

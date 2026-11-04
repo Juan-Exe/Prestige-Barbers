@@ -333,21 +333,30 @@ class CarritoManager {
             return;
         }
 
-        // Usuario autenticado, proceder con la compra
-        console.log('✅ Usuario autenticado, procesando compra del carrito...');
+        // Usuario autenticado: se abre el checkout real.
+        //
+        // Antes aquí se mostraba un "compra exitosa" y se vaciaba el
+        // carrito sin cobrar nada. Ahora el carrito se vacía solo cuando
+        // el pago está confirmado, desde factus-checkout.js.
+        console.log('✅ Usuario autenticado, abriendo checkout...');
 
-        // Cerrar modal del carrito
         this.cerrarCarrito();
 
-        // Mostrar modal de compra exitosa
-        setTimeout(() => {
-            this.mostrarModalCompraExitosa();
-        }, 400);
+        if (!window.factusCheckout) {
+            console.error('❌ factus-checkout.js no está cargado en esta página');
+            this.mostrarNotificacion('El sistema de pagos no está disponible');
+            return;
+        }
 
-        // Vaciar carrito
-        this.carrito = [];
-        this.guardarCarrito();
-        this.actualizarUI();
+        const items = this.carrito.map((p) => ({
+            tipo: 'producto',
+            id: Number(p.id),
+            cantidad: Number(p.cantidad) || 1,
+        }));
+
+        setTimeout(() => {
+            window.factusCheckout.pagarItems(items);
+        }, 350);
     }
 
     // Mostrar modal de compra exitosa

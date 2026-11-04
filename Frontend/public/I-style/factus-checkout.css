@@ -1,0 +1,279 @@
+/* =====================================================================
+   Checkout de Factus Pay
+
+   Sigue el sistema del sitio: negro #1b1b1b, Montserrat, botones
+   cuadrados con hover invertido.
+   ===================================================================== */
+
+.factus-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    z-index: 10000;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.factus-overlay.activo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.factus-modal {
+    position: relative;
+    background: #fff;
+    width: 100%;
+    max-width: 440px;
+    padding: 40px 32px 32px;
+    font-family: "Montserrat", sans-serif;
+    text-align: center;
+    max-height: 92vh;
+    overflow-y: auto;
+}
+
+.factus-cerrar {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    width: 34px;
+    height: 34px;
+    background: transparent;
+    border: none;
+    font-size: 1.7rem;
+    line-height: 1;
+    color: #1b1b1b;
+    cursor: pointer;
+    transition: opacity 0.3s ease;
+}
+
+.factus-cerrar:hover { opacity: 0.55; }
+
+.factus-titulo {
+    margin: 0 0 6px;
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: #1b1b1b;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.factus-monto {
+    margin: 0 0 22px;
+    font-size: 1.9rem;
+    font-weight: 700;
+    color: #1b1b1b;
+}
+
+.factus-qr {
+    display: block;
+    width: 230px;
+    height: 230px;
+    margin: 0 auto 18px;
+    border: 1px solid #e0e0e0;
+}
+
+.factus-instruccion {
+    margin: 0 0 22px;
+    font-size: 0.9rem;
+    color: #666;
+    line-height: 1.5;
+}
+
+.factus-cargando {
+    margin: 30px 0;
+    color: #666;
+    font-size: 0.95rem;
+}
+
+.factus-aviso {
+    margin: 18px 0;
+    color: #b00;
+    font-size: 0.92rem;
+    line-height: 1.5;
+}
+
+/* ---- Llave Bre-B ---- */
+.factus-llave-bloque {
+    margin: 0 0 20px;
+    padding: 16px;
+    background: #f9f9f9;
+    border: 1px solid #e0e0e0;
+}
+
+.factus-llave-etiqueta {
+    display: block;
+    margin-bottom: 10px;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: #666;
+}
+
+.factus-llave-fila {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+}
+
+.factus-llave {
+    flex: 1;
+    padding: 9px 10px;
+    background: #fff;
+    border: 1px solid #ccc;
+    font-family: "Courier New", monospace;
+    font-size: 0.86rem;
+    color: #1b1b1b;
+    word-break: break-all;
+    text-align: left;
+}
+
+.factus-btn-copiar {
+    padding: 9px 16px;
+    background: #1b1b1b;
+    color: #fff;
+    border: 1px solid #1b1b1b;
+    font-family: "Montserrat", sans-serif;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.3s ease;
+}
+
+.factus-btn-copiar:hover {
+    background: #fff;
+    color: #1b1b1b;
+}
+
+/* ---- Estado y vencimiento ---- */
+.factus-expira {
+    margin: 0 0 16px;
+    font-size: 0.86rem;
+    color: #666;
+}
+
+.factus-expira strong {
+    color: #1b1b1b;
+    font-variant-numeric: tabular-nums;
+}
+
+.factus-estado {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    margin: 0 0 22px;
+    padding: 11px;
+    background: #f5f5f5;
+    font-size: 0.87rem;
+    color: #666;
+}
+
+.factus-estado-vencido {
+    background: #f1f1f1;
+    color: #b00;
+}
+
+.factus-punto {
+    width: 9px;
+    height: 9px;
+    background: #1b1b1b;
+    border-radius: 50%;
+    animation: factus-latido 1.4s ease-in-out infinite;
+}
+
+@keyframes factus-latido {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.25; }
+}
+
+/* ---- Confirmación ---- */
+.factus-exito-icono {
+    width: 68px;
+    height: 68px;
+    margin: 0 auto 20px;
+    background: #1b1b1b;
+    color: #fff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.1rem;
+}
+
+/* ---- Botones ---- */
+.factus-acciones {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 6px;
+}
+
+.factus-btn-primario,
+.factus-btn-secundario {
+    padding: 12px 26px;
+    font-family: "Montserrat", sans-serif;
+    font-size: 0.9rem;
+    font-weight: 600;
+    border: 1px solid #1b1b1b;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.factus-btn-primario {
+    background: #1b1b1b;
+    color: #fff;
+}
+
+.factus-btn-primario:hover {
+    background: #fff;
+    color: #1b1b1b;
+}
+
+.factus-btn-secundario {
+    background: #fff;
+    color: #1b1b1b;
+}
+
+.factus-btn-secundario:hover {
+    background: #1b1b1b;
+    color: #fff;
+}
+
+.factus-btn-secundario:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.factus-referencia {
+    margin: 18px 0 0;
+    font-size: 0.76rem;
+    color: #999;
+    letter-spacing: 0.4px;
+}
+
+/* ---- Móvil ---- */
+@media (max-width: 480px) {
+    .factus-modal {
+        padding: 34px 20px 24px;
+    }
+
+    .factus-qr {
+        width: 190px;
+        height: 190px;
+    }
+
+    .factus-monto {
+        font-size: 1.6rem;
+    }
+
+    .factus-llave-fila {
+        flex-direction: column;
+    }
+
+    .factus-acciones {
+        flex-direction: column;
+    }
+}

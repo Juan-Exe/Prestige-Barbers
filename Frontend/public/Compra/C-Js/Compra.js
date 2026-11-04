@@ -247,9 +247,30 @@ function comprarAhora() {
         return;
     }
 
-    // Usuario autenticado, proceder con la compra
-    console.log('✅ Usuario autenticado, procesando compra...');
-    mostrarModalCompra();
+    // Usuario autenticado: se abre el checkout real.
+    // Antes aquí se llamaba a mostrarModalCompra(), que solo pintaba un
+    // "COMPRA REALIZADA" sin cobrar nada.
+    if (!window.productoActual) {
+        console.error('❌ Producto no cargado');
+        if (window.customModal) {
+            window.customModal.showAlert('No se pudo cargar el producto', 'Error');
+        }
+        return;
+    }
+
+    if (!window.factusCheckout) {
+        console.error('❌ factus-checkout.js no está cargado en esta página');
+        if (window.customModal) {
+            window.customModal.showAlert(
+                'El sistema de pagos no está disponible en este momento',
+                'Error'
+            );
+        }
+        return;
+    }
+
+    console.log('✅ Abriendo checkout para', window.productoActual.nombre);
+    window.factusCheckout.pagarProducto(window.productoActual.id, 1);
 }
 
 // ==================== VERIFICAR AUTENTICACIÓN PARA EL CARRITO ====================

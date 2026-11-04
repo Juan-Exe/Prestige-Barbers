@@ -759,13 +759,6 @@ footer p {
 }
 
 /* ==================== FACTURA COMPLETA ==================== */
-/* El encabezado se desbordaba: la referencia es larga y el estado no
-   cabía al lado. Ahora cada uno ocupa su línea en pantallas estrechas. */
-.compra-header {
-    flex-wrap: wrap;
-    row-gap: 10px;
-}
-
 .compra-referencia {
     flex: 1 1 auto;
     min-width: 0;
@@ -881,4 +874,34 @@ footer p {
     .factura-btn {
         text-align: center;
     }
+}
+
+/* ==================== APILAMIENTO ====================
+   El header es sticky con z-index 1000 en styles.css. Las tarjetas del
+   perfil son blancas y opacas: sin un contexto de apilamiento propio
+   por debajo, al hacer scroll se dibujaban POR ENCIMA del header y lo
+   tapaban.
+
+   La solución no es subir el z-index del header (ya es alto), sino
+   dejar el contenido del perfil en su propia capa, por debajo. */
+.perfil-container {
+    position: relative;
+    z-index: 1;
+}
+
+/* El encabezado de cada compra: la referencia es larga y el estado no
+   siempre cabe al lado. */
+.compra-header {
+    row-gap: 10px;
+}
+
+.compra-referencia {
+    flex: 1 1 200px;
+    min-width: 0;
+    word-break: break-all;
+    text-align: left;
+}
+
+.compra-estado {
+    flex: 0 0 auto;
 }

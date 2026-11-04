@@ -206,6 +206,53 @@ function construirRutas({ db, verificarToken }) {
     );
 
     // -----------------------------------------------------------------
+    //  POST /api/factus/ordenes/:referencia/renovar-qr
+    //
+    //  Cuando el QR vence, Factus permite renovarlo reenviando el mismo
+    //  reference_code con el mismo monto. No crea otro cobro ni vuelve
+    //  a cobrar la tarifa.
+    // -----------------------------------------------------------------
+    router.post('/ordenes/:referencia/renovar-qr',
+        verificarToken,
+        param('referencia').isLength({ min: 3, max: 100 }).matches(/^[A-Z0-9-]+$/i),
+
+        async (req, res) => {
+            if (errores(req, res)) return;
+
+            try {
+                const filas = await new Promise((resolve, reject) => {
+                    db.query(
+                        'SELECT * FROM facturacion_ordenes WHERE referencia = ?',
+                        [req.params.referencia],
+                        (err, r) => (err ? reject(err) : resolve(r))
+                    );
+                });
+
+                if (filas.length === 0) {
+                    return res.status(404).json({ success: false, message: 'Orden no encontrada' });
+                }
+
+                const orden = filas[0];
+                if (orden.usuario_id !== req.userId) {
+                    return res.status(403).json({ success: false, message: 'No es tu orden' });
+                }
+
+                if (orden.estado === 'pagada' || orden.estado === 'facturada') {
+                    return res.status(409).json({
+                        success: false,
+                        message: 'Esta compra ya está pagada',
+                    });
+                }
+
+                const resultado = await ordenes.renovarRecaudo(db, orden);
+                return res.json({ success: true, ...resultado });
+            } catch (error) {
+                return responderError(res, error, 'renovar QR');
+            }
+        }
+    );
+
+    // -----------------------------------------------------------------
     //  POST /api/factus/ordenes/:referencia/reintentar-factura
     //
     //  Para órdenes en error_factura: el pago entró pero la factura

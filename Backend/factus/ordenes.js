@@ -190,6 +190,92 @@ async function crearOrden(db, { usuarioId, cliente, items, reservaId = null }) {
         );
     }
 
+    // ---- Reutilizar una orden pendiente en vez de crear otra ----
+    //
+    // Si el cliente vuelve a intentar pagar lo mismo, lo que quiere es
+    // seguir con su cobro, no abrir uno nuevo. Crear otra orden deja
+    // pendientes duplicadas y cuesta dinero: Factus cobra $800 + IVA
+    // por cada recaudo creado.
+    //
+    // Se busca una orden del mismo usuario, por el mismo importe y los
+    // mismos artículos, que siga esperando el pago.
+    const candidatas = await consultar(db, `
+        SELECT * FROM facturacion_ordenes
+         WHERE usuario_id = ?
+           AND total = ?
+           AND estado IN ('creada', 'recaudo_pendiente', 'expirada')
+           AND (reserva_id <=> ?)
+         ORDER BY id DESC
+         LIMIT 5
+    `, [usuarioId, totales.total, reservaId]);
+
+    for (const candidata of candidatas) {
+        const suyos = await consultar(db,
+            'SELECT tipo, item_ref_id, cantidad FROM facturacion_orden_items WHERE orden_id = ? ORDER BY tipo, item_ref_id',
+            [candidata.id]
+        );
+
+        const iguales =
+            suyos.length === resueltos.length &&
+            suyos.every((s, i) => {
+                const r = [...resueltos].sort((a, b) =>
+                    (a.tipo + a.item_ref_id).localeCompare(b.tipo + b.item_ref_id))[i];
+                return r && s.tipo === r.tipo &&
+                    Number(s.item_ref_id) === Number(r.item_ref_id) &&
+                    Number(s.cantidad) === Number(r.cantidad);
+            });
+
+        if (!iguales) continue;
+
+        // Es la misma compra. Se recupera su recaudo: Factus es
+        // idempotente por reference_code, así que devuelve el que ya
+        // existe en vez de cobrar otra vez.
+        try {
+            const recaudo = await pay.crearRecaudo(candidata.referencia, totales.total);
+
+            // Si ya estaba pagado, no hay nada que reintentar.
+            if (recaudo.estado === 'paid') {
+                await marcarPagada(db, candidata, recaudo, 'consulta');
+                throw new OrdenError(
+                    'Esta compra ya está pagada. Revísala en Mis Compras.',
+                    409
+                );
+            }
+
+            const expira = pay.parsearFecha(recaudo.qrExpiraEn);
+
+            await consultar(db, `
+                UPDATE facturacion_ordenes
+                   SET estado = 'recaudo_pendiente',
+                       pay_status = ?, pay_breb_key = ?, pay_qr_expires_at = ?
+                 WHERE id = ?
+            `, [recaudo.estado || 'ready', recaudo.brebKey || null, expira, candidata.id]);
+
+            await registrarEvento(db, {
+                ordenId: candidata.id, referencia: candidata.referencia,
+                fuente: 'pay', evento: 'recaudo_reutilizado',
+                resultado: 'ok', mensaje: 'Se reutilizó el cobro pendiente',
+            });
+
+            console.log(`[factus-pay] Reutilizando ${candidata.referencia} en vez de crear otra orden`);
+
+            return {
+                referencia: candidata.referencia,
+                estado: 'recaudo_pendiente',
+                total: Number(candidata.total).toFixed(2),
+                qr: recaudo.qr,
+                breb_key: recaudo.brebKey,
+                expira_en: expira ? expira.toISOString() : null,
+                reutilizada: true,
+            };
+        } catch (error) {
+            if (error instanceof OrdenError) throw error;
+            // Si no se pudo recuperar, se sigue y se crea una nueva.
+            console.warn(`[factus-pay] No se pudo reutilizar ${candidata.referencia}:`, error.message);
+            break;
+        }
+    }
+
     await consultar(db, 'START TRANSACTION');
 
     let ordenId;
@@ -299,6 +385,53 @@ async function crearOrden(db, { usuarioId, cliente, items, reservaId = null }) {
             502
         );
     }
+}
+
+// ---------------------------------------------------------------------
+//  Renovar el QR de un recaudo
+//
+//  Factus renueva el QR si se reenvía el mismo reference_code con el
+//  mismo monto. No crea otro cobro ni vuelve a cobrar la tarifa de
+//  $800 + IVA.
+// ---------------------------------------------------------------------
+async function renovarRecaudo(db, orden) {
+    const recaudo = await pay.crearRecaudo(orden.referencia, Number(orden.total));
+
+    // Puede haberse pagado mientras tanto.
+    if (recaudo.estado === 'paid') {
+        await marcarPagada(db, orden, recaudo, 'consulta');
+        return {
+            referencia: orden.referencia,
+            estado: 'pagada',
+            total: Number(orden.total).toFixed(2),
+            ya_pagada: true,
+        };
+    }
+
+    const expira = pay.parsearFecha(recaudo.qrExpiraEn);
+
+    await consultar(db, `
+        UPDATE facturacion_ordenes
+           SET estado = 'recaudo_pendiente',
+               pay_status = ?, pay_breb_key = ?, pay_qr_expires_at = ?,
+               ultimo_error = NULL
+         WHERE id = ?
+    `, [recaudo.estado || 'ready', recaudo.brebKey || null, expira, orden.id]);
+
+    await registrarEvento(db, {
+        ordenId: orden.id, referencia: orden.referencia,
+        fuente: 'pay', evento: 'qr_renovado',
+        resultado: 'ok', mensaje: 'QR renovado',
+    });
+
+    return {
+        referencia: orden.referencia,
+        estado: 'recaudo_pendiente',
+        total: Number(orden.total).toFixed(2),
+        qr: recaudo.qr,
+        breb_key: recaudo.brebKey,
+        expira_en: expira ? expira.toISOString() : null,
+    };
 }
 
 // ---------------------------------------------------------------------
@@ -589,6 +722,7 @@ async function registrarEvento(db, { ordenId, referencia, fuente, evento, result
 
 module.exports = {
     crearOrden,
+    renovarRecaudo,
     emitirFacturaDeOrden,
     consultarOrden,
     marcarPagada,

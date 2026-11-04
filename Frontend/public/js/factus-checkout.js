@@ -247,8 +247,19 @@
                 detenerSondeo();
                 const estado = document.getElementById('factusEstado');
                 if (estado) {
-                    estado.innerHTML = 'El código venció. Cierra y vuelve a intentarlo.';
+                    estado.innerHTML = 'El código venció';
                     estado.classList.add('factus-estado-vencido');
+                }
+                // Factus renueva el QR con la misma referencia, sin
+                // cobrar otra vez la tarifa del recaudo.
+                const acciones = document.querySelector('.factus-acciones');
+                if (acciones && !document.getElementById('factusRenovar')) {
+                    const btn = document.createElement('button');
+                    btn.id = 'factusRenovar';
+                    btn.className = 'factus-btn-primario';
+                    btn.textContent = 'Generar código nuevo';
+                    btn.addEventListener('click', renovarQR);
+                    acciones.prepend(btn);
                 }
                 return;
             }
@@ -264,6 +275,46 @@
 
     function detenerCuentaAtras() {
         if (cuentaAtras) { clearInterval(cuentaAtras); cuentaAtras = null; }
+    }
+
+    // -----------------------------------------------------------------
+    //  Renovar el QR vencido
+    // -----------------------------------------------------------------
+    async function renovarQR() {
+        if (!referenciaActual) return;
+
+        const btn = document.getElementById('factusRenovar');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Generando...';
+        }
+
+        try {
+            const token = localStorage.getItem('auth_token');
+            const r = await fetch(
+                `/api/factus/ordenes/${encodeURIComponent(referenciaActual)}/renovar-qr`,
+                {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
+                }
+            );
+            const datos = await r.json();
+
+            if (!r.ok) {
+                return pantallaError(datos.message || 'No se pudo renovar el código', false);
+            }
+            if (datos.ya_pagada) {
+                return pantallaPagado(datos);
+            }
+
+            pantallaQR(datos);
+            iniciarSondeo();
+        } catch (error) {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = 'Generar código nuevo';
+            }
+        }
     }
 
     // -----------------------------------------------------------------

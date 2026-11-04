@@ -313,6 +313,13 @@ const verificarAdmin = (req, res, next) => {
     });
 };
 
+// ==================== FACTUS PAY ====================
+// Aquí, y no antes: estas rutas necesitan `db` y `verificarToken`, que
+// se definen más arriba en este mismo archivo.
+const rutasFactus = require('./factus/rutas');
+app.use('/api/factus', rutasFactus.construirRutas({ db, verificarToken }));
+console.log('✅ Rutas de Factus Pay montadas en /api/factus');
+
 // POST /api/auth/register - Registrar nuevo usuario
 app.post('/api/auth/register',
     // Validaciones con express-validator

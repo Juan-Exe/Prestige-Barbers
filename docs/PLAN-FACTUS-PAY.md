@@ -6,7 +6,7 @@ factura electrónica DIAN.
 | Dato | Valor |
 |---|---|
 | Fecha | 4 de noviembre de 2026 |
-| Estado | Fase 2 completada — cliente probado contra el sandbox |
+| Estado | Fase 3 completada — endpoints probados de extremo a extremo |
 | Entorno | Sandbox |
 | Webhook | `https://prestigebarber.store/api/factus/webhook/pay` |
 
@@ -370,7 +370,7 @@ Las credenciales no van en el repositorio. `FACTUS_PAY_ACCESS_KEY` del
 | 0 — Reconocimiento | ✅ Completada | Sí, contra la API real |
 | 1 — Base de datos | ✅ Completada | Sí, 5/5 criterios |
 | 2 — Cliente de Pay | ✅ Completada | Sí, 5/5 criterios |
-| 3 — Endpoints | Pendiente | — |
+| 3 — Endpoints | ✅ Completada | Sí, 6/6 criterios |
 | 4 — Webhook | Pendiente | — |
 | 5 — Frontend | Pendiente | — |
 | 6 — Factura DIAN | Fuera de alcance | — |

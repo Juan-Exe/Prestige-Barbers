@@ -11,6 +11,12 @@ const { body, validationResult } = require('express-validator');
 require('dotenv').config();
 
 const app = express();
+
+// Dentro de Docker el servidor ve la IP del gateway (172.x.x.x) para TODOS
+// los clientes externos, asi que el rate limit por IP se compartia entre
+// todos los equipos de la red. Confiando en el primer proxy, req.ip toma
+// el valor real de X-Forwarded-For y cada equipo tiene su propio contador.
+app.set('trust proxy', 1);
 const port = process.env.PORT || 3000;
 
 // Clave secreta para JWT desde variable de entorno
@@ -88,13 +94,20 @@ app.use(cors({
 // Limitar peticiones generales de la API
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutos
-    max: 100, // Máximo 100 peticiones por ventana
+    // Con Docker todos los equipos de la red pueden compartir la IP del
+    // gateway, asi que el limite es efectivamente para TODA la red.
+    // Una sola visita gasta varias peticiones (productos, barberos,
+    // reservas, busqueda), por lo que 100 se agotaba enseguida.
+    max: parseInt(process.env.RATE_LIMIT_MAX || '1000', 10),
     message: {
         success: false,
         message: 'Demasiadas peticiones desde esta IP, por favor intenta de nuevo más tarde.'
     },
     standardHeaders: true,
     legacyHeaders: false,
+    // Las lecturas (catalogo, barberos, ver reservas propias) no son el
+    // vector que interesa limitar y son las que gasta la navegacion normal.
+    skip: (req) => req.method === 'GET',
     handler: (req, res) => {
         console.warn(`⚠️ Rate limit excedido - IP: ${req.ip} - URL: ${req.url}`);
         res.status(429).json({
@@ -107,7 +120,10 @@ const apiLimiter = rateLimit({
 // Limitar endpoints de autenticación (más restrictivo)
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutos
-    max: 5, // Solo 5 intentos
+    // Mismo motivo que arriba: con una IP compartida, 5 intentos fallidos
+    // de cualquiera dejaban sin acceso a toda la red. Sigue protegiendo
+    // contra fuerza bruta pero sin bloquear a usuarios legitimos.
+    max: parseInt(process.env.AUTH_RATE_LIMIT_MAX || '30', 10),
     message: {
         success: false,
         message: 'Demasiados intentos de autenticación, intenta de nuevo en 15 minutos.'

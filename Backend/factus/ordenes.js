@@ -512,6 +512,33 @@ async function emitirFacturaDeOrden(db, ordenId) {
         });
 
         console.log(`[factus-fact] ${orden.referencia} facturada: ${factura.numero}`);
+
+        // Enviar la factura al correo del cliente.
+        //
+        // En sandbox, Factus solo envía a una lista de correos
+        // autorizados: responde "El correo no esta autorizado para
+        // recibir correos en el entorno sandbox". No es un fallo de la
+        // factura, que ya está validada ante la DIAN, así que se
+        // registra y se sigue. En producción funciona sin restricción.
+        if (orden.cliente_email && factura.numero) {
+            try {
+                await facturacion.enviarFacturaPorCorreo(factura.numero, orden.cliente_email);
+                await registrarEvento(db, {
+                    ordenId: orden.id, referencia: orden.referencia,
+                    fuente: 'facturacion', evento: 'factura_enviada_correo',
+                    resultado: 'ok', mensaje: `Enviada a ${orden.cliente_email}`,
+                });
+                console.log(`[factus-fact] Factura enviada a ${orden.cliente_email}`);
+            } catch (error) {
+                await registrarEvento(db, {
+                    ordenId: orden.id, referencia: orden.referencia,
+                    fuente: 'facturacion', evento: 'correo_no_enviado',
+                    resultado: 'error', mensaje: String(error.message).slice(0, 400),
+                });
+                console.warn('[factus-fact] No se envió el correo:', error.message);
+            }
+        }
+
         return factura;
     } catch (error) {
         // El pago no se revierte: solo falló la factura.

@@ -246,6 +246,39 @@ async function emitirFactura({ referencia, cliente, items, total, observacion })
     };
 }
 
+// ---------------------------------------------------------------------
+//  Enviar la factura por correo
+//
+//  El campo send_email de /v2/bills/validate solo funciona en
+//  producción: Factus lo tiene deshabilitado en sandbox. Este endpoint
+//  es la vía explícita, y se intenta igualmente para que el flujo quede
+//  completo en cuanto se pase a producción.
+// ---------------------------------------------------------------------
+async function enviarFacturaPorCorreo(numero, email) {
+    if (!numero || !email) {
+        throw new FacturacionError('Hacen falta el número de factura y el correo');
+    }
+
+    const { status, ok, cuerpo } = await peticionAutenticada(
+        `/v2/bills/${encodeURIComponent(numero)}/send-email`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email }),
+        }
+    );
+
+    if (!ok) {
+        throw new FacturacionError(
+            `No se pudo enviar la factura por correo: ` +
+            ((cuerpo && cuerpo.message) || `código ${status}`),
+            { status, cuerpo, transitorio: status >= 500 }
+        );
+    }
+
+    return { enviado: true, mensaje: cuerpo && cuerpo.message };
+}
+
 async function consultarFactura(numero) {
     const { status, ok, cuerpo } = await peticionAutenticada(
         '/v2/bills/' + encodeURIComponent(numero)
@@ -265,6 +298,7 @@ function _limpiarCache() {
 
 module.exports = {
     emitirFactura,
+    enviarFacturaPorCorreo,
     consultarFactura,
     obtenerRangoNumeracion,
     FacturacionError,

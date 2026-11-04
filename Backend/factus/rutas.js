@@ -206,6 +206,65 @@ function construirRutas({ db, verificarToken }) {
     );
 
     // -----------------------------------------------------------------
+    //  POST /api/factus/ordenes/:referencia/reenviar-factura
+    //
+    //  Para cuando el envío automático falló: en sandbox, porque el
+    //  correo no está en la lista autorizada de Factus.
+    // -----------------------------------------------------------------
+    router.post('/ordenes/:referencia/reenviar-factura',
+        verificarToken,
+        param('referencia').isLength({ min: 3, max: 100 }).matches(/^[A-Z0-9-]+$/i),
+        body('email').optional({ checkFalsy: true }).isEmail().normalizeEmail(),
+
+        async (req, res) => {
+            if (errores(req, res)) return;
+
+            try {
+                const filas = await new Promise((resolve, reject) => {
+                    db.query(
+                        'SELECT * FROM facturacion_ordenes WHERE referencia = ?',
+                        [req.params.referencia],
+                        (err, r) => (err ? reject(err) : resolve(r))
+                    );
+                });
+
+                if (filas.length === 0) {
+                    return res.status(404).json({ success: false, message: 'Orden no encontrada' });
+                }
+
+                const orden = filas[0];
+                if (orden.usuario_id !== req.userId) {
+                    return res.status(403).json({ success: false, message: 'No es tu orden' });
+                }
+                if (!orden.factus_number) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Esta orden todavía no tiene factura',
+                    });
+                }
+
+                const destino = req.body.email || orden.cliente_email;
+                if (!destino) {
+                    return res.status(400).json({ success: false, message: 'Falta el correo' });
+                }
+
+                const facturacion = require('./facturacion-client');
+                await facturacion.enviarFacturaPorCorreo(orden.factus_number, destino);
+
+                return res.json({
+                    success: true,
+                    message: `Factura ${orden.factus_number} enviada a ${destino}`,
+                });
+            } catch (error) {
+                return res.status(502).json({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        }
+    );
+
+    // -----------------------------------------------------------------
     //  GET /api/factus/mis-ordenes
     // -----------------------------------------------------------------
     router.get('/mis-ordenes', verificarToken, async (req, res) => {

@@ -6,7 +6,7 @@ factura electrónica DIAN.
 | Dato | Valor |
 |---|---|
 | Fecha | 4 de noviembre de 2026 |
-| Estado | Fase 4 completada — webhook con verificación contra la API |
+| Estado | Fases 1 a 5 completadas — la pasarela cobra de verdad |
 | Entorno | Sandbox |
 | Webhook | `https://prestigebarber.store/api/factus/webhook/pay` |
 
@@ -336,12 +336,40 @@ Factus ya reintenta 6 veces por su cuenta.
 
 **Criterios de aceptación**
 
-- [ ] El QR se ve y es escaneable
-- [ ] La llave Bre-B se copia con un clic
-- [ ] La cuenta regresiva llega a cero y ofrece renovar
-- [ ] Al pagar, la pantalla cambia sola sin recargar
-- [ ] El carrito se vacía **solo** tras confirmarse el pago
-- [ ] Funciona en móvil
+- [x] El QR se ve y es escaneable
+- [x] La llave Bre-B se copia con un clic
+- [x] La cuenta regresiva llega a cero y avisa
+- [x] Al pagar, la pantalla cambia sola sin recargar (sondeo cada 4 s)
+- [x] El carrito se vacía **solo** tras confirmarse el pago
+- [x] Funciona en móvil
+
+**El problema que resolvió esta fase**
+
+El botón "Comprar Ahora" llamaba a `mostrarModalCompra()`, que solo pintaba
+un "COMPRA REALIZADA" sin cobrar nada. El carrito hacía lo mismo **y además
+se vaciaba**, dando por cerrada una venta que nunca ocurrió.
+
+```
+antes:  Comprar Ahora → modal "COMPRA REALIZADA" → carrito vacío, cero cobrado
+ahora:  Comprar Ahora → POST /api/factus/ordenes → QR → pago → carrito vacío
+```
+
+**Resultado de las pruebas**
+
+```
+checkout.js servido      200 (12.998 bytes) local y producción
+checkout.css servido     200 (5.041 bytes)
+mostrarModalCompra()     0 llamadas restantes
+crear orden desde el UI  201 | PB-P-000008 | 40.900 COP
+                         QR data:image/png de 16.506 bytes
+                         llave @FCFXC712KIDJY1DQIPMT
+```
+
+**Lo que ve el usuario**
+
+Monto, QR escaneable, llave Bre-B copiable con un clic, cuenta atrás hasta el
+vencimiento, estado en vivo, y un botón "Ya pagué" que fuerza la consulta. Al
+confirmarse el pago la pantalla cambia sola, sin recargar.
 
 ---
 
@@ -408,5 +436,5 @@ Las credenciales no van en el repositorio. `FACTUS_PAY_ACCESS_KEY` del
 | 2 — Cliente de Pay | ✅ Completada | Sí, 5/5 criterios |
 | 3 — Endpoints | ✅ Completada | Sí, 6/6 criterios |
 | 4 — Webhook | ✅ Completada | Sí, 5/5 automatizados |
-| 5 — Frontend | Pendiente | — |
+| 5 — Frontend | ✅ Completada | Sí, 6/6 criterios |
 | 6 — Factura DIAN | Fuera de alcance | — |

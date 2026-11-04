@@ -113,6 +113,37 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
                 
+                // El nombre solo admite letras (con tildes y ñ), espacios, guion y apóstrofo
+                const nombreValido = /^[A-Za-zÁÉÍÓÚáéíóúÑñÜü]+(?:[ '-][A-Za-zÁÉÍÓÚáéíóúÑñÜü]+)*$/;
+                if (!nombreValido.test(nombreCompleto)) {
+                    if (window.customModal) {
+                        customModal.showAlert('El nombre solo puede contener letras y espacios, sin números ni símbolos', 'Nombre inválido');
+                    } else {
+                        mostrarMensaje('El nombre solo puede contener letras y espacios', 'error');
+                    }
+                    return;
+                }
+
+                if (nombreCompleto.length < 3 || nombreCompleto.length > 60) {
+                    if (window.customModal) {
+                        customModal.showAlert('El nombre debe tener entre 3 y 60 caracteres', 'Nombre inválido');
+                    } else {
+                        mostrarMensaje('El nombre debe tener entre 3 y 60 caracteres', 'error');
+                    }
+                    return;
+                }
+
+                // Validación básica de correo
+                const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+                if (!emailValido.test(email)) {
+                    if (window.customModal) {
+                        customModal.showAlert('Ingresa un correo electrónico válido', 'Correo inválido');
+                    } else {
+                        mostrarMensaje('Ingresa un correo electrónico válido', 'error');
+                    }
+                    return;
+                }
+
                 if (password !== confirmPassword) {
                     if (window.customModal) {
                         customModal.showAlert('Las contraseñas no coinciden', 'Error de validación');

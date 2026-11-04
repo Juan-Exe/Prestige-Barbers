@@ -23,21 +23,29 @@ const JWT_SECRET = process.env.JWT_SECRET || 'prestige_barbers_secret_key_2025_C
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
-            defaultSrc: ["'self'", "http://192.168.1.36:3000", "http://localhost:3000", "http://127.0.0.1:3000"],
-            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "http://192.168.1.36:3000", "http://localhost:3000"],
-            fontSrc: ["'self'", "https://fonts.gstatic.com", "http://192.168.1.36:3000", "http://localhost:3000"],
-            imgSrc: ["'self'", "data:", "https:", "http://192.168.1.36:3000", "http://localhost:3000"],
-            scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-hashes'", "http://192.168.1.36:3000", "http://localhost:3000", "http://127.0.0.1:3000"],
+            // 'self' cubre el origen desde el que se sirvio la pagina (cualquier IP
+            // de la red local), por lo que no hace falta listar IPs fijas.
+            defaultSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+            fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+            imgSrc: ["'self'", "data:", "https:"],
+            scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-hashes'"],
             scriptSrcAttr: ["'unsafe-inline'", "'unsafe-hashes'"], // Permitir onclick, etc.
-            connectSrc: ["'self'", "http://192.168.1.36:3000", "http://localhost:3000", "http://127.0.0.1:3000"],
-            frameAncestors: ["'self'"] // FIX NESSUS: Prevenir clickjacking
+            connectSrc: ["'self'"],
+            frameAncestors: ["'self'"], // FIX NESSUS: Prevenir clickjacking
+            // Helmet lo activa por defecto: obliga al navegador a pedir TODOS los
+            // recursos por https. Sirviendo por http en red local eso rompe el sitio
+            // (CSS/JS/imagenes no cargan). Solo se activa en produccion (con HTTPS).
+            ...(process.env.NODE_ENV === 'production'
+                ? {}
+                : { upgradeInsecureRequests: null })
         }
     },
-    hsts: {
-        maxAge: 31536000,
-        includeSubDomains: true,
-        preload: true
-    },
+    // HSTS solo tiene sentido sirviendo por HTTPS. En desarrollo por HTTP
+    // forzaria al navegador a reescribir las URLs a https y romperia el sitio.
+    hsts: process.env.NODE_ENV === 'production'
+        ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+        : false,
     frameguard: {
         action: 'deny' // FIX NESSUS: X-Frame-Options DENY
     },
@@ -56,8 +64,10 @@ app.use(cors({
         // Permitir requests sin origin (como mobile apps o curl)
         if (!origin) return callback(null, true);
         
-        // Para desarrollo/testing, permitir IPs de red local (192.168.x.x)
-        if (origin && origin.includes('192.168.')) {
+        // Para desarrollo/testing, permitir cualquier IP de red privada
+        // (192.168.x.x, 10.x.x.x y 172.16-31.x.x), no solo 192.168.
+        const redPrivada = /^https?:\/\/(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(:\d+)?$/;
+        if (origin && redPrivada.test(origin)) {
             return callback(null, true);
         }
         
@@ -266,8 +276,11 @@ app.post('/api/auth/register',
     // Validaciones con express-validator
     body('nombre_completo')
         .trim()
-        .isLength({ min: 3, max: 255 })
-        .withMessage('El nombre debe tener entre 3 y 255 caracteres')
+        .isLength({ min: 3, max: 60 })
+        .withMessage('El nombre debe tener entre 3 y 60 caracteres')
+        // Solo letras (con tildes y ñ), espacios, guion y apóstrofo: sin números ni símbolos
+        .matches(/^[A-Za-zÁÉÍÓÚáéíóúÑñÜü]+(?:[ '-][A-Za-zÁÉÍÓÚáéíóúÑñÜü]+)*$/)
+        .withMessage('El nombre solo puede contener letras y espacios, sin números ni símbolos')
         .escape(),
     body('email')
         .trim()

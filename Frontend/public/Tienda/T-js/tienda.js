@@ -225,8 +225,8 @@ function mostrarMensajeNoProductos() {
                 <p style="font-size: 1.2em; color: #666; margin-bottom: 20px;">
                     No hay productos disponibles en este momento
                 </p>
-                <a href="../Admin/productos.html" style="display: inline-block; padding: 12px 24px; background: #1b1b1b; color: white; text-decoration: none; font-size: 1em;">
-                    Agregar Productos
+                <a href="../index.html" style="display: inline-block; padding: 12px 24px; background: #1b1b1b; color: white; text-decoration: none; font-size: 1em;">
+                    Volver al inicio
                 </a>
             </div>
         `;

@@ -837,9 +837,178 @@
             }
         }
 
+        // ==================== MIS COMPRAS ====================
+        //
+        // Viven aquí y no en perfil.js porque ese archivo no se carga en
+        // esta página: toda la lógica del perfil está en este script.
+
+        // Las órdenes se piden UNA vez y se reutilizan, tanto para la
+        // pestaña de compras como para la factura de cada reserva.
+        let ordenesEnCache = null;
+
+        async function obtenerOrdenes(forzar) {
+            if (ordenesEnCache && !forzar) return ordenesEnCache;
+
+            const token = localStorage.getItem('auth_token');
+            if (!token) return [];
+
+            try {
+                const r = await fetch('/api/factus/mis-ordenes', {
+                    headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' }
+                });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const d = await r.json();
+                ordenesEnCache = d.ordenes || [];
+                return ordenesEnCache;
+            } catch (e) {
+                console.error('[COMPRAS] Error al pedir órdenes:', e.message);
+                throw e;
+            }
+        }
+
+        function escaparTexto(t) {
+            const d = document.createElement('div');
+            d.textContent = t == null ? '' : String(t);
+            return d.innerHTML;
+        }
+
+        function pesos(v) {
+            return Number(v).toLocaleString('es-CO', {
+                minimumFractionDigits: 0, maximumFractionDigits: 0
+            });
+        }
+
+        async function cargarMisCompras() {
+            const cont = document.getElementById('comprasContainer');
+            if (!cont) return;
+
+            cont.innerHTML = '<p class="compras-cargando">Cargando tus compras...</p>';
+
+            try {
+                const ordenes = await obtenerOrdenes(true);
+                console.log('✅ Compras recibidas:', ordenes.length);
+
+                if (ordenes.length === 0) {
+                    cont.innerHTML =
+                        '<div class="empty-state">' +
+                        '<p>Todavía no has hecho ninguna compra</p>' +
+                        '<a href="../Tienda/index.html" class="btn-primary">Ir a la tienda</a>' +
+                        '</div>';
+                    return;
+                }
+
+                cont.innerHTML = ordenes.map(renderCompra).join('');
+            } catch (e) {
+                cont.innerHTML =
+                    '<div class="reservas-error">' +
+                    '<p>No pudimos cargar tus compras.</p>' +
+                    '<button class="btn-primary" onclick="cargarMisCompras()">Reintentar</button>' +
+                    '</div>';
+            }
+        }
+
+        function renderCompra(o) {
+            const nombres = {
+                creada: 'Creada',
+                recaudo_pendiente: 'Pendiente de pago',
+                pagada: 'Pagada',
+                facturada: 'Pagada y facturada',
+                expirada: 'Expirada',
+                fallida: 'Fallida',
+                error_factura: 'Pagada, factura pendiente',
+                anulada: 'Anulada'
+            };
+
+            let fecha = o.creada_en;
+            try {
+                const d = new Date(o.creada_en);
+                if (!isNaN(d)) {
+                    fecha = d.toLocaleDateString('es-CO', {
+                        day: 'numeric', month: 'long', year: 'numeric'
+                    });
+                }
+            } catch (e) {}
+
+            const items = (o.items || []).map(function (i) {
+                return '<li class="compra-item"><span>' + escaparTexto(i.nombre) +
+                    (i.cantidad > 1 ? ' &times;' + i.cantidad : '') +
+                    '</span><span>$' + pesos(i.total) + '</span></li>';
+            }).join('');
+
+            let factura = '';
+            if (o.factura && o.factura.numero) {
+                factura =
+                    '<div class="compra-factura">' +
+                    '<span class="compra-factura-etiqueta">Factura electrónica DIAN</span>' +
+                    '<strong class="compra-factura-numero">' + escaparTexto(o.factura.numero) + '</strong>' +
+                    (o.factura.cufe
+                        ? '<span class="compra-cufe">CUFE: ' + escaparTexto(String(o.factura.cufe).slice(0, 30)) + '...</span>'
+                        : '') +
+                    (o.factura.public_url
+                        ? '<a href="' + escaparTexto(o.factura.public_url) + '" target="_blank" rel="noopener" class="compra-ver-factura">Ver factura</a>'
+                        : '') +
+                    '</div>';
+            } else if (o.estado === 'pagada' || o.estado === 'error_factura') {
+                factura = '<div class="compra-factura compra-factura-espera">La factura se está emitiendo...</div>';
+            }
+
+            return '<article class="compra-card">' +
+                '<header class="compra-header">' +
+                '<span class="compra-referencia">' + escaparTexto(o.referencia) + '</span>' +
+                '<span class="compra-estado estado-' + escaparTexto(o.estado) + '">' +
+                escaparTexto(nombres[o.estado] || o.estado) + '</span>' +
+                '</header>' +
+                '<div class="compra-body">' +
+                '<ul class="compra-items">' + items + '</ul>' +
+                '<div class="compra-total"><span>Total</span><strong>$' + pesos(o.total) + '</strong></div>' +
+                factura +
+                '<p class="compra-fecha">' + escaparTexto(fecha) + '</p>' +
+                '</div></article>';
+        }
+
+        // La factura de una reserva vive en la orden que la pagó.
+        async function pintarFacturaDeReserva(reservaId) {
+            const hueco = document.querySelector('.reserva-factura[data-reserva="' + reservaId + '"]');
+            if (!hueco) return;
+
+            let ordenes;
+            try {
+                ordenes = await obtenerOrdenes(false);
+            } catch (e) {
+                return;  // sin órdenes no hay nada que pintar
+            }
+
+            const orden = ordenes.find(function (o) {
+                return Number(o.reserva_id) === Number(reservaId);
+            });
+            if (!orden) return;
+
+            if (orden.factura && orden.factura.numero) {
+                hueco.innerHTML =
+                    '<span class="compra-factura-etiqueta">Factura electrónica DIAN</span>' +
+                    '<strong class="compra-factura-numero">' + escaparTexto(orden.factura.numero) + '</strong>' +
+                    (orden.factura.public_url
+                        ? '<a href="' + escaparTexto(orden.factura.public_url) + '" target="_blank" rel="noopener" class="compra-ver-factura">Ver factura</a>'
+                        : '');
+                hueco.classList.add('reserva-factura-visible');
+            } else if (orden.estado === 'recaudo_pendiente') {
+                hueco.innerHTML = '<span class="reserva-pago-pendiente">Pago pendiente</span>';
+                hueco.classList.add('reserva-factura-visible');
+            } else if (orden.estado === 'pagada' || orden.estado === 'error_factura') {
+                hueco.innerHTML = '<span class="reserva-pago-pendiente">Pagada &middot; factura en camino</span>';
+                hueco.classList.add('reserva-factura-visible');
+            }
+        }
+
         // Cargar reservas cuando se carga la página
         document.addEventListener('DOMContentLoaded', () => {
             cargarReservas();
+
+            // Las compras se cargan al abrir su pestaña.
+            const btnCompras = document.querySelector('.tab-btn[data-tab="compras"]');
+            if (btnCompras) {
+                btnCompras.addEventListener('click', cargarMisCompras);
+            }
         });
     </script>
     

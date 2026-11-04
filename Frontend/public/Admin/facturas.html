@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Facturación - Prestige Barbers</title>
+
+    <!-- ==================== VERIFICACIÓN DE AUTENTICACIÓN ====================
+         DEBE EJECUTARSE PRIMERO para proteger el acceso al panel -->
+    <script src="auth-check.js"></script>
+
+    <!-- ==================== ESTILOS MINIMALISTAS ====================
+         Diseño cuadrado blanco y negro consistente con Prestige Barbers -->
+    <link rel="stylesheet" href="admin-styles.css">
+
+    <style>
+        /* ==================== FACTURACIÓN ====================
+           Solo lo que no cubre admin-styles.css. Se reutilizan card,
+           btn-primary, btn-danger, modal y table-container. */
+
+        .facturas-main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Resumen: cuántas facturas hay y en qué estado. */
+        .resumen {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .resumen-item {
+            border: 1px solid #1B1B1B;
+            padding: 15px;
+            text-align: center;
+            background: #fff;
+        }
+
+        .resumen-item .numero {
+            display: block;
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #1B1B1B;
+            line-height: 1.2;
+        }
+
+        .resumen-item .etiqueta {
+            display: block;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        /* La tabla de facturas. */
+        .tabla-facturas {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        .tabla-facturas th {
+            background: #1B1B1B;
+            color: #fff;
+            padding: 12px 10px;
+            text-align: left;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 600;
+        }
+
+        .tabla-facturas td {
+            padding: 12px 10px;
+            border-bottom: 1px solid #e5e5e5;
+            vertical-align: middle;
+        }
+
+        .tabla-facturas tbody tr:hover {
+            background: #fafafa;
+        }
+
+        .numero-factura {
+            font-family: 'Courier New', monospace;
+            font-weight: 700;
+            color: #1B1B1B;
+        }
+
+        .cufe {
+            font-family: 'Courier New', monospace;
+            font-size: 0.7rem;
+            color: #666;
+            display: block;
+            margin-top: 2px;
+        }
+
+        .monto {
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        /* Estados de la orden. */
+        .estado {
+            display: inline-block;
+            padding: 3px 9px;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            border: 1px solid #1B1B1B;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .estado-facturada { background: #1B1B1B; color: #fff; }
+        .estado-anulada   { background: #d32f2f; color: #fff; border-color: #d32f2f; }
+        .estado-pagada    { background: #fff;    color: #1B1B1B; }
+
+        /* Las notas ya emitidas sobre una factura. */
+        .notas-lista {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .notas-lista li {
+            font-size: 0.75rem;
+            padding: 2px 0;
+            color: #555;
+        }
+
+        .notas-lista .tipo {
+            display: inline-block;
+            min-width: 16px;
+            font-weight: 700;
+            color: #1B1B1B;
+        }
+
+        .sin-notas {
+            color: #999;
+            font-size: 0.8rem;
+            font-style: italic;
+        }
+
+        /* Acciones por fila. */
+        .acciones {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .btn-mini {
+            padding: 6px 10px;
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            border: 1px solid #1B1B1B;
+            background: #fff;
+            color: #1B1B1B;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.15s, color 0.15s;
+            white-space: nowrap;
+        }
+
+        .btn-mini:hover:not(:disabled) {
+            background: #1B1B1B;
+            color: #fff;
+        }
+
+        .btn-mini.peligro { border-color: #d32f2f; color: #d32f2f; }
+        .btn-mini.peligro:hover:not(:disabled) { background: #d32f2f; color: #fff; }
+
+        .btn-mini:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+
+        /* Estados de carga y vacío. */
+        .cargando, .vacio {
+            text-align: center;
+            padding: 50px 20px;
+            color: #666;
+        }
+
+        /* Conceptos de la nota débito, que pueden ser varios. */
+        .concepto-fila {
+            display: grid;
+            grid-template-columns: 1fr 140px auto;
+            gap: 8px;
+            margin-bottom: 8px;
+            align-items: start;
+        }
+
+        .concepto-fila input { width: 100%; }
+
+        .quitar-concepto {
+            background: #fff;
+            border: 1px solid #d32f2f;
+            color: #d32f2f;
+            width: 34px;
+            height: 34px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            line-height: 1;
+            font-weight: 700;
+        }
+
+        .quitar-concepto:hover { background: #d32f2f; color: #fff; }
+
+        .total-conceptos {
+            text-align: right;
+            font-weight: 700;
+            padding: 10px 0;
+            border-top: 1px solid #1B1B1B;
+            margin-top: 6px;
+        }
+
+        .aviso {
+            background: #f8f7f0;
+            border-left: 3px solid #1B1B1B;
+            padding: 12px 14px;
+            font-size: 0.82rem;
+            margin-bottom: 18px;
+            color: #555;
+            line-height: 1.5;
+        }
+
+        /* Mensaje de resultado dentro del modal. */
+        .resultado {
+            padding: 12px;
+            font-size: 0.85rem;
+            margin-top: 12px;
+            line-height: 1.5;
+            word-break: break-word;
+        }
+
+        .resultado.ok    { border-left: 3px solid #1B1B1B; background: #f5f5f5; }
+        .resultado.error { border-left: 3px solid #d32f2f; background: #fdf0f0; color: #a02020; }
+
+        @media (max-width: 860px) {
+            .table-container { overflow-x: auto; }
+            .tabla-facturas { min-width: 760px; }
+            .concepto-fila { grid-template-columns: 1fr 110px auto; }
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>PANEL DE ADMINISTRACIÓN</h1>
+    </header>
+
+    <nav class="nav-buttons">
+        <a href="../index.html">← Inicio</a>
+        <a href="index.html">Registrar Items</a>
+        <a href="gestion.html">Gestionar Relaciones</a>
+        <a href="barberos.html">Gestionar Barberos</a>
+        <a href="productos.html">Gestionar Productos</a>
+        <a href="facturas.html" class="active">Facturación</a>
+    </nav>
+
+    <main class="facturas-main">
+
+        <div class="resumen" id="resumen"></div>
+
+        <section class="card">
+            <div class="card-header">
+                <h2>Facturas emitidas</h2>
+                <p>Emite notas crédito para anular una factura, o notas débito para cargar un valor adicional</p>
+            </div>
+            <div class="card-body">
+                <div class="aviso">
+                    Una factura validada por la DIAN no se borra ni se edita. Para corregirla se emite una
+                    <strong>nota crédito</strong>, que la anula; para cobrar un valor adicional sobre ella,
+                    una <strong>nota débito</strong>. Ambas quedan registradas ante la DIAN con su propio CUDE.
+                </div>
+
+                <div class="table-container">
+                    <div class="cargando" id="cargando">Cargando facturas...</div>
+                    <table class="tabla-facturas hidden" id="tabla">
+                        <thead>
+                            <tr>
+                                <th>Factura</th>
+                                <th>Referencia</th>
+                                <th>Cliente</th>
+                                <th>Monto</th>
+                                <th>Estado</th>
+                                <th>Notas</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cuerpo"></tbody>
+                    </table>
+                    <div class="vacio hidden" id="vacio">
+                        Todavía no hay facturas emitidas.
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- ==================== MODAL: NOTA CRÉDITO ==================== -->
+    <div class="modal-overlay hidden" id="modal-credito">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Anular con nota crédito</h2>
+                <button class="close-btn" data-cerrar="modal-credito">&times;</button>
+            </div>
+            <div class="card-body">
+                <p class="mb-20">
+                    Se anulará la factura <strong id="credito-numero"></strong>
+                    por <strong id="credito-monto"></strong>.
+                    La orden pasa a <em>anulada</em>, pero conserva sus datos: ante la DIAN
+                    la factura sigue existiendo, corregida por la nota.
+                </p>
+
+                <div class="form-group">
+                    <label for="credito-motivo">Motivo de la anulación *</label>
+                    <input type="text" id="credito-motivo" maxlength="500"
+                           placeholder="Ej: El cliente canceló el servicio">
+                </div>
+
+                <div id="credito-resultado"></div>
+
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" data-cerrar="modal-credito">Cancelar</button>
+                    <button class="btn btn-danger" id="credito-enviar">Emitir nota crédito</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL: NOTA DÉBITO ==================== -->
+    <div class="modal-overlay hidden" id="modal-debito">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Emitir nota débito</h2>
+                <button class="close-btn" data-cerrar="modal-debito">&times;</button>
+            </div>
+            <div class="card-body">
+                <p class="mb-20">
+                    Carga un valor adicional sobre la factura <strong id="debito-numero"></strong>.
+                    Los valores se indican con IVA incluido, igual que en la tienda.
+                </p>
+
+                <div class="form-group">
+                    <label for="debito-concepto">Concepto DIAN *</label>
+                    <select id="debito-concepto">
+                        <option value="1">1 — Intereses</option>
+                        <option value="2">2 — Gastos por cobrar</option>
+                        <option value="3">3 — Cambio del valor</option>
+                        <option value="4" selected>4 — Otros</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="debito-motivo">Motivo *</label>
+                    <input type="text" id="debito-motivo" maxlength="500"
+                           placeholder="Ej: Intereses por mora en el pago">
+                </div>
+
+                <div class="form-group">
+                    <label>Conceptos a cobrar *</label>
+                    <div id="debito-conceptos"></div>
+                    <button type="button" class="btn-mini" id="debito-agregar">+ Añadir concepto</button>
+                    <div class="total-conceptos">Total: <span id="debito-total">$0</span></div>
+                </div>
+
+                <div id="debito-resultado"></div>
+
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" data-cerrar="modal-debito">Cancelar</button>
+                    <button class="btn btn-primary" id="debito-enviar">Emitir nota débito</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // =====================================================================
+    //  Facturación — panel de administración
+    //
+    //  Los endpoints de notas ya existían en el backend pero no había
+    //  forma de llamarlos desde la interfaz: solo por API. Esta página
+    //  es esa parte que faltaba.
+    //
+    //  Las rutas son relativas ('/api/...') y no absolutas: una URL con
+    //  host fijo rompe en cuanto se entra por IP de red local o por el
+    //  dominio, y además la CSP la bloquea.
+    // =====================================================================
+
+    const API = '/api/factus';
+
+    const dinero = (n) =>
+        '$' + Number(n || 0).toLocaleString('es-CO', { minimumFractionDigits: 0 });
+
+    // La clave es 'auth_token', la misma que usa auth-check.js. Con otro
+    // nombre la petición sale sin credenciales y el backend responde 401.
+    function token() {
+        return localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+    }
+
+    async function pedir(ruta, opciones = {}) {
+        const r = await fetch(API + ruta, {
+            ...opciones,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + token(),
+                ...(opciones.headers || {}),
+            },
+        });
+        const cuerpo = await r.json().catch(() => ({}));
+        if (!r.ok) {
+            throw new Error(cuerpo.message || `Error ${r.status}`);
+        }
+        return cuerpo;
+    }
+
+    // ---------------------------------------------------------------
+    //  Cargar y pintar las facturas
+    // ---------------------------------------------------------------
+    let ordenes = [];
+
+    async function cargar() {
+        const cargando = document.getElementById('cargando');
+        const tabla = document.getElementById('tabla');
+        const vacio = document.getElementById('vacio');
+
+        cargando.classList.remove('hidden');
+        tabla.classList.add('hidden');
+        vacio.classList.add('hidden');
+
+        try {
+            // /admin/facturas y no /mis-ordenes: esta última filtra por
+            // usuario, así que un admin solo vería sus propias compras.
+            // El backend ya devuelve únicamente las que tienen factura.
+            const datos = await pedir('/admin/facturas');
+            ordenes = (datos.ordenes || []).filter((o) => o.factura && o.factura.numero);
+
+            cargando.classList.add('hidden');
+
+            if (ordenes.length === 0) {
+                vacio.classList.remove('hidden');
+                pintarResumen();
+                return;
+            }
+
+            pintarResumen();
+            pintarTabla();
+            tabla.classList.remove('hidden');
+        } catch (e) {
+            cargando.textContent = 'No se pudieron cargar las facturas: ' + e.message;
+        }
+    }
+
+    function pintarResumen() {
+        const total = ordenes.length;
+        const anuladas = ordenes.filter((o) => o.estado === 'anulada').length;
+        const conDebito = ordenes.filter((o) => (o.notas_debito || []).length > 0).length;
+        const facturado = ordenes
+            .filter((o) => o.estado !== 'anulada')
+            .reduce((s, o) => s + Number(o.total || 0), 0);
+
+        document.getElementById('resumen').innerHTML = `
+            <div class="resumen-item">
+                <span class="numero">${total}</span>
+                <span class="etiqueta">Facturas</span>
+            </div>
+            <div class="resumen-item">
+                <span class="numero">${anuladas}</span>
+                <span class="etiqueta">Anuladas</span>
+            </div>
+            <div class="resumen-item">
+                <span class="numero">${conDebito}</span>
+                <span class="etiqueta">Con nota débito</span>
+            </div>
+            <div class="resumen-item">
+                <span class="numero">${dinero(facturado)}</span>
+                <span class="etiqueta">Facturado vigente</span>
+            </div>`;
+    }
+
+    function escapar(t) {
+        const d = document.createElement('div');
+        d.textContent = t == null ? '' : String(t);
+        return d.innerHTML;
+    }
+
+    function pintarTabla() {
+        document.getElementById('cuerpo').innerHTML = ordenes.map((o) => {
+            const f = o.factura || {};
+            const anulada = o.estado === 'anulada';
+            const debitos = o.notas_debito || [];
+
+            // Las notas ya emitidas sobre esta factura.
+            let notas = '';
+            if (o.nota_credito && o.nota_credito.numero) {
+                notas += `<li><span class="tipo">NC</span> ${escapar(o.nota_credito.numero)}</li>`;
+            }
+            debitos.forEach((n) => {
+                notas += `<li><span class="tipo">ND</span> ${escapar(n.numero)} · ${dinero(n.total)}</li>`;
+            });
+            if (!notas) notas = '<span class="sin-notas">Sin notas</span>';
+            else notas = `<ul class="notas-lista">${notas}</ul>`;
+
+            const cufe = f.cufe ? `<span class="cufe">${escapar(String(f.cufe).slice(0, 20))}…</span>` : '';
+
+            return `
+            <tr>
+                <td>
+                    <span class="numero-factura">${escapar(f.numero)}</span>
+                    ${cufe}
+                </td>
+                <td>${escapar(o.referencia)}</td>
+                <td>${escapar(o.cliente_nombre || '—')}</td>
+                <td class="monto">${dinero(o.total)}</td>
+                <td><span class="estado estado-${escapar(o.estado)}">${escapar(o.estado)}</span></td>
+                <td>${notas}</td>
+                <td>
+                    <div class="acciones">
+                        ${f.public_url
+                            ? `<a class="btn-mini" href="${escapar(f.public_url)}" target="_blank" rel="noopener">Ver</a>`
+                            : ''}
+                        <button class="btn-mini" data-debito="${escapar(o.referencia)}"
+                            ${anulada ? 'disabled title="La factura está anulada"' : ''}>
+                            Nota débito
+                        </button>
+                        <button class="btn-mini peligro" data-credito="${escapar(o.referencia)}"
+                            ${anulada ? 'disabled title="Ya fue anulada"' : ''}>
+                            Anular
+                        </button>
+                    </div>
+                </td>
+            </tr>`;
+        }).join('');
+    }
+
+    // ---------------------------------------------------------------
+    //  Modales
+    // ---------------------------------------------------------------
+    let refActual = null;
+
+    function abrir(id) { document.getElementById(id).classList.remove('hidden'); }
+    function cerrar(id) {
+        document.getElementById(id).classList.add('hidden');
+        document.getElementById('credito-resultado').innerHTML = '';
+        document.getElementById('debito-resultado').innerHTML = '';
+    }
+
+    function mostrar(donde, texto, ok) {
+        document.getElementById(donde).innerHTML =
+            `<div class="resultado ${ok ? 'ok' : 'error'}">${escapar(texto)}</div>`;
+    }
+
+    document.querySelectorAll('[data-cerrar]').forEach((b) => {
+        b.addEventListener('click', () => cerrar(b.dataset.cerrar));
+    });
+
+    // Delegación: los botones se crean al pintar la tabla.
+    document.getElementById('cuerpo').addEventListener('click', (ev) => {
+        const bd = ev.target.closest('[data-debito]');
+        const bc = ev.target.closest('[data-credito]');
+
+        if (bd) {
+            refActual = bd.dataset.debito;
+            const o = ordenes.find((x) => x.referencia === refActual);
+            document.getElementById('debito-numero').textContent = o.factura.numero;
+            document.getElementById('debito-motivo').value = '';
+            document.getElementById('debito-conceptos').innerHTML = '';
+            agregarConcepto();
+            abrir('modal-debito');
+        }
+
+        if (bc) {
+            refActual = bc.dataset.credito;
+            const o = ordenes.find((x) => x.referencia === refActual);
+            document.getElementById('credito-numero').textContent = o.factura.numero;
+            document.getElementById('credito-monto').textContent = dinero(o.total);
+            document.getElementById('credito-motivo').value = '';
+            abrir('modal-credito');
+        }
+    });
+
+    // ---------------------------------------------------------------
+    //  Nota crédito
+    // ---------------------------------------------------------------
+    document.getElementById('credito-enviar').addEventListener('click', async (ev) => {
+        const motivo = document.getElementById('credito-motivo').value.trim();
+        if (motivo.length < 5) {
+            mostrar('credito-resultado', 'Explica el motivo (mínimo 5 caracteres).', false);
+            return;
+        }
+
+        const boton = ev.currentTarget;
+        boton.disabled = true;
+        boton.textContent = 'Emitiendo...';
+
+        try {
+            const r = await pedir(`/ordenes/${encodeURIComponent(refActual)}/anular`, {
+                method: 'POST',
+                body: JSON.stringify({ motivo }),
+            });
+            mostrar('credito-resultado', r.message || 'Nota crédito emitida.', true);
+            await cargar();
+            setTimeout(() => cerrar('modal-credito'), 2200);
+        } catch (e) {
+            mostrar('credito-resultado', e.message, false);
+        } finally {
+            boton.disabled = false;
+            boton.textContent = 'Emitir nota crédito';
+        }
+    });
+
+    // ---------------------------------------------------------------
+    //  Nota débito: puede llevar varios conceptos
+    // ---------------------------------------------------------------
+    function agregarConcepto() {
+        const fila = document.createElement('div');
+        fila.className = 'concepto-fila';
+        fila.innerHTML = `
+            <input type="text" class="c-desc" maxlength="200" placeholder="Descripción del cargo">
+            <input type="number" class="c-valor" min="1" step="1" placeholder="Valor">
+            <button type="button" class="quitar-concepto" title="Quitar">&times;</button>`;
+
+        fila.querySelector('.quitar-concepto').addEventListener('click', () => {
+            const cont = document.getElementById('debito-conceptos');
+            if (cont.children.length > 1) { fila.remove(); recalcular(); }
+        });
+        fila.querySelector('.c-valor').addEventListener('input', recalcular);
+
+        document.getElementById('debito-conceptos').appendChild(fila);
+    }
+
+    function recalcular() {
+        let t = 0;
+        document.querySelectorAll('#debito-conceptos .c-valor')
+            .forEach((i) => { t += Number(i.value) || 0; });
+        document.getElementById('debito-total').textContent = dinero(t);
+    }
+
+    document.getElementById('debito-agregar').addEventListener('click', agregarConcepto);
+
+    document.getElementById('debito-enviar').addEventListener('click', async (ev) => {
+        const motivo = document.getElementById('debito-motivo').value.trim();
+        const concepto = document.getElementById('debito-concepto').value;
+
+        const conceptos = [];
+        document.querySelectorAll('#debito-conceptos .concepto-fila').forEach((f) => {
+            const d = f.querySelector('.c-desc').value.trim();
+            const v = Number(f.querySelector('.c-valor').value);
+            if (d && v > 0) conceptos.push({ descripcion: d, valor: v });
+        });
+
+        if (motivo.length < 5) {
+            mostrar('debito-resultado', 'Explica el motivo (mínimo 5 caracteres).', false);
+            return;
+        }
+        if (conceptos.length === 0) {
+            mostrar('debito-resultado', 'Añade al menos un concepto con descripción y valor.', false);
+            return;
+        }
+
+        const boton = ev.currentTarget;
+        boton.disabled = true;
+        boton.textContent = 'Emitiendo...';
+
+        try {
+            const r = await pedir(`/ordenes/${encodeURIComponent(refActual)}/nota-debito`, {
+                method: 'POST',
+                body: JSON.stringify({ motivo, concepto, conceptos }),
+            });
+            const n = r.nota || {};
+            mostrar('debito-resultado',
+                `${r.message || 'Nota débito emitida.'}` +
+                (n.cude ? ` CUDE: ${String(n.cude).slice(0, 24)}…` : ''), true);
+            await cargar();
+            setTimeout(() => cerrar('modal-debito'), 2600);
+        } catch (e) {
+            mostrar('debito-resultado', e.message, false);
+        } finally {
+            boton.disabled = false;
+            boton.textContent = 'Emitir nota débito';
+        }
+    });
+
+    cargar();
+    </script>
+</body>
+
+</html>

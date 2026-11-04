@@ -526,6 +526,109 @@ function construirRutas({ db, verificarToken }) {
     );
 
     // -----------------------------------------------------------------
+    //  GET /api/factus/admin/facturas
+    //
+    //  Todas las facturas emitidas, de todos los clientes. Es lo que
+    //  consume el panel de administracion para poder emitir notas: con
+    //  /mis-ordenes un admin solo veria sus propias compras.
+    //
+    //  Solo administradores, y el rol se comprueba contra la base de
+    //  datos, no contra el token.
+    // -----------------------------------------------------------------
+    router.get('/admin/facturas', verificarToken, async (req, res) => {
+        try {
+            const u = await new Promise((resolve, reject) => {
+                db.query('SELECT rol FROM usuarios WHERE id = ?', [req.userId],
+                    (err, r) => (err ? reject(err) : resolve(r)));
+            });
+
+            if (u.length === 0 || u[0].rol !== 'admin') {
+                console.warn('[factus] Intento de listar facturas sin permisos - usuario ' + req.userId);
+                return res.status(403).json({
+                    success: false,
+                    message: 'Solo un administrador puede consultar las facturas',
+                });
+            }
+
+            // Solo las que llegaron a emitir factura: sobre las demas no
+            // hay nada que corregir.
+            const filas = await new Promise((resolve, reject) => {
+                db.query(`
+                    SELECT id, referencia, tipo, estado, total, subtotal, impuestos,
+                           cliente_nombre, cliente_email, cliente_documento,
+                           factus_number, factus_cufe, factus_public_url,
+                           factus_validated_at, pay_paid_at, created_at,
+                           nota_credito_number, nota_credito_cude,
+                           nota_credito_url, nota_credito_motivo, nota_credito_at
+                      FROM facturacion_ordenes
+                     WHERE factus_number IS NOT NULL
+                     ORDER BY id DESC
+                     LIMIT 200
+                `, (err, r) => (err ? reject(err) : resolve(r)));
+            });
+
+            const ids = filas.map((o) => o.id);
+
+            let notasDebito = [];
+            if (ids.length > 0) {
+                notasDebito = await new Promise((resolve, reject) => {
+                    db.query(
+                        'SELECT orden_id, numero, cude, public_url, motivo, total, created_at ' +
+                        'FROM facturacion_notas_debito ' +
+                        'WHERE orden_id IN (?) AND estado = ? ORDER BY id',
+                        [ids, 'emitida'],
+                        (err, r) => (err ? reject(err) : resolve(r))
+                    );
+                });
+            }
+
+            const debitoPorOrden = {};
+            for (const n of notasDebito) {
+                (debitoPorOrden[n.orden_id] = debitoPorOrden[n.orden_id] || []).push({
+                    numero: n.numero,
+                    cude: n.cude,
+                    public_url: n.public_url,
+                    motivo: n.motivo,
+                    total: Number(n.total).toFixed(2),
+                    emitida_en: n.created_at,
+                });
+            }
+
+            return res.json({
+                success: true,
+                ordenes: filas.map((o) => ({
+                    referencia: o.referencia,
+                    tipo: o.tipo,
+                    estado: o.estado,
+                    total: Number(o.total).toFixed(2),
+                    subtotal: Number(o.subtotal).toFixed(2),
+                    impuestos: Number(o.impuestos).toFixed(2),
+                    cliente_nombre: o.cliente_nombre,
+                    cliente_email: o.cliente_email,
+                    creada_en: o.created_at,
+                    pagada_en: o.pay_paid_at,
+                    factura: {
+                        numero: o.factus_number,
+                        cufe: o.factus_cufe,
+                        public_url: o.factus_public_url,
+                        validada_en: o.factus_validated_at,
+                    },
+                    notas_debito: debitoPorOrden[o.id] || [],
+                    nota_credito: o.nota_credito_number ? {
+                        numero: o.nota_credito_number,
+                        cude: o.nota_credito_cude,
+                        public_url: o.nota_credito_url,
+                        motivo: o.nota_credito_motivo,
+                        emitida_en: o.nota_credito_at,
+                    } : null,
+                })),
+            });
+        } catch (error) {
+            return responderError(res, error, 'listar facturas');
+        }
+    });
+
+    // -----------------------------------------------------------------
     //  GET /api/factus/mis-ordenes
     // -----------------------------------------------------------------
     router.get('/mis-ordenes', verificarToken, async (req, res) => {

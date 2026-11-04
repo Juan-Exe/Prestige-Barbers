@@ -981,6 +981,21 @@
                 factura = '<div class="compra-factura compra-factura-espera">La factura se está emitiendo...</div>';
             }
 
+            // Si la factura fue anulada, la nota credito que la corrige.
+            // La factura sigue existiendo ante la DIAN: lo que cambia es
+            // que queda corregida por esta nota.
+            if (o.nota_credito && o.nota_credito.numero) {
+                const nc = o.nota_credito;
+                factura += '<div class="compra-nota">' +
+                    '<span class="compra-factura-etiqueta">Nota crédito &mdash; factura anulada</span>' +
+                    '<strong class="compra-factura-numero">' + escaparTexto(nc.numero) + '</strong>' +
+                    (nc.motivo ? '<span class="nota-motivo">' + escaparTexto(nc.motivo) + '</span>' : '') +
+                    (nc.public_url
+                        ? '<a href="' + escaparTexto(nc.public_url) + '" target="_blank" rel="noopener" class="compra-ver-factura">Ver nota</a>'
+                        : '') +
+                    '</div>';
+            }
+
             return '<article class="compra-card">' +
                 '<header class="compra-header">' +
                 '<span class="compra-referencia">' + escaparTexto(o.referencia) + '</span>' +

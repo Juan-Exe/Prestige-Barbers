@@ -140,28 +140,42 @@ async function peticionAutenticada(ruta, opciones = {}, yaReintentado = false) {
 //  numbering_range_id solo es obligatorio si la empresa tiene más de un
 //  rango activo. Se consulta una vez y se recuerda.
 // ---------------------------------------------------------------------
-let rangoEnCache = null;
+// Cada tipo de documento tiene su propio rango autorizado por la DIAN:
+// la factura usa uno, la nota crédito otro. Enviar el de facturas en
+// una nota crédito devuelve "El campo id rango de numeración es
+// inválido".
+const rangosEnCache = {};
 
-async function obtenerRangoNumeracion() {
-    if (process.env.FACTUS_NUMBERING_RANGE_ID) {
-        return parseInt(process.env.FACTUS_NUMBERING_RANGE_ID, 10);
-    }
-    if (rangoEnCache) return rangoEnCache;
+async function obtenerRangoNumeracion(tipo) {
+    tipo = tipo || 'factura';
+
+    const fijo = tipo === 'factura'
+        ? process.env.FACTUS_NUMBERING_RANGE_ID
+        : process.env['FACTUS_RANGE_' + tipo.toUpperCase()];
+    if (fijo) return parseInt(fijo, 10);
+
+    if (rangosEnCache[tipo]) return rangosEnCache[tipo];
 
     const { ok, cuerpo } = await peticionAutenticada('/v2/numbering-ranges');
     if (!ok) return null;
 
     const lista = (cuerpo && cuerpo.data && cuerpo.data.data) || (cuerpo && cuerpo.data) || [];
-    // Se busca un rango de factura de venta que esté activo.
-    const factura = lista.find((r) =>
-        r.is_active && /factura/i.test(String(r.document || ''))
-    ) || lista.find((r) => r.is_active) || lista[0];
 
-    if (factura && factura.id) {
-        rangoEnCache = factura.id;
-        console.log('[factus-fact] Rango de numeración:', factura.id, '-', factura.document);
+    const patrones = {
+        factura: /factura\s*de\s*venta/i,
+        nota_credito: /nota\s*cr[eé]dito/i,
+        nota_debito: /nota\s*d[eé]bito/i,
+    };
+    const patron = patrones[tipo] || patrones.factura;
+
+    const elegido = lista.find((r) => r.is_active && patron.test(String(r.document || '')));
+
+    if (elegido && elegido.id) {
+        rangosEnCache[tipo] = elegido.id;
+        console.log('[factus-fact] Rango de', tipo + ':', elegido.id,
+                    '(' + elegido.prefix + ')');
     }
-    return rangoEnCache;
+    return rangosEnCache[tipo] || null;
 }
 
 // ---------------------------------------------------------------------
@@ -401,8 +415,107 @@ async function descargarDocumento(numero, tipo) {
     };
 }
 
+
+// ---------------------------------------------------------------------
+//  Nota crédito
+//
+//  Una factura validada por la DIAN no se borra ni se edita: se corrige
+//  con una nota crédito que la referencia. Esto anula la factura
+//  completa (concepto 2).
+//
+//  Conceptos de corrección de la DIAN:
+//    1  Devolución parcial de bienes o no aceptación parcial del servicio
+//    2  Anulación de factura electrónica
+//    3  Rebaja o descuento parcial o total
+//    4  Ajuste de precio
+//    5  Descuento comercial por pago anticipado
+//    6  Descuento comercial por volumen de ventas
+// ---------------------------------------------------------------------
+async function emitirNotaCredito({ referencia, numeroFactura, cliente, items, total, concepto, observacion }) {
+    if (!numeroFactura) {
+        throw new FacturacionError('Hace falta el número de la factura a corregir');
+    }
+
+    // El total debe cuadrar con el que calcula Factus desde las bases,
+    // igual que en la factura: un centavo de diferencia da 422.
+    const totalCalculado = items.reduce((suma, i) => {
+        const base = Number(i.precio_neto_unitario) * Number(i.cantidad);
+        return suma + base + base * (Number(i.tasa_impuesto) / 100);
+    }, 0);
+    const totalPago = (Math.floor(totalCalculado * 100) / 100).toFixed(2);
+
+    const cuerpoNota = {
+        reference_code: referencia,
+        correction_concept_code: String(concepto || '2'),
+        bill_number: numeroFactura,
+        observation: (observacion || `Anulación de la factura ${numeroFactura}`).slice(0, 500),
+
+        payment_details: [{
+            payment_form: '1',
+            payment_method_code: '47',
+            reference_code: referencia,
+            amount: totalPago,
+        }],
+
+        customer: {
+            identification_document_code: cliente.tipo_documento || '13',
+            identification: cliente.documento,
+            legal_organization_code: '2',
+            tribute_code: 'ZZ',
+            names: cliente.nombre,
+            email: cliente.email || undefined,
+        },
+
+        items: items.map((i) => ({
+            code_reference: i.codigo_referencia,
+            name: i.nombre,
+            quantity: Number(i.cantidad),
+            price: Number(i.precio_neto_unitario).toFixed(2),
+            discount_rate: '0.00',
+            unit_measure_code: '94',
+            standard_code: '999',
+            is_excluded: 0,
+            withholding_taxes: [],
+            taxes: [{ code: '01', rate: Number(i.tasa_impuesto).toFixed(2) }],
+        })),
+    };
+
+    const rango = await obtenerRangoNumeracion('nota_credito');
+    if (rango) cuerpoNota.numbering_range_id = rango;
+
+    const { status, ok, cuerpo } = await peticionAutenticada('/v2/credit-notes/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cuerpoNota),
+    });
+
+    if (!ok) {
+        const motivo = (cuerpo && cuerpo.message) || `código ${status}`;
+        throw new FacturacionError(
+            `La DIAN rechazó la nota crédito: ${motivo}`,
+            { status, cuerpo, transitorio: status >= 500 }
+        );
+    }
+
+    // La nota viene en la raíz de `data`, no anidada. `data.bill` es la
+    // FACTURA que se está corrigiendo: leer de ahí devolvía el número y
+    // el CUFE de la factura en vez de los de la nota.
+    const nota = (cuerpo && cuerpo.data) || {};
+    const links = nota.links || {};
+
+    return {
+        numero: nota.number || nota.name || null,
+        cude: nota.cude || null,
+        publicUrl: links.public_url || nota.public_url || null,
+        qrUrl: links.qr || nota.qr || null,
+        mensaje: cuerpo && cuerpo.message,
+        crudo: nota,
+    };
+}
+
 module.exports = {
     emitirFactura,
+    emitirNotaCredito,
     enviarFacturaPorCorreo,
     descargarDocumento,
     consultarFactura,

@@ -761,6 +761,103 @@ async function enviarFacturaAlCliente(db, orden, factura) {
     }
 }
 
+// ---------------------------------------------------------------------
+//  Anular una factura con nota crédito
+//
+//  Una factura validada por la DIAN no se borra ni se edita. Se corrige
+//  con una nota crédito que la referencia, y eso es lo que hace esta
+//  función. La orden pasa a 'anulada' pero conserva los datos de la
+//  factura: sigue existiendo ante la DIAN, solo que corregida.
+// ---------------------------------------------------------------------
+async function anularConNotaCredito(db, ordenId, { motivo, concepto } = {}) {
+    const filas = await consultar(db,
+        'SELECT * FROM facturacion_ordenes WHERE id = ?', [ordenId]);
+    if (filas.length === 0) {
+        throw new OrdenError('Orden no encontrada', 404);
+    }
+
+    const orden = filas[0];
+
+    if (orden.estado === 'anulada') {
+        return {
+            yaAnulada: true,
+            numero: orden.nota_credito_number,
+            cude: orden.nota_credito_cude,
+        };
+    }
+    if (orden.estado !== 'facturada') {
+        throw new OrdenError(
+            `Solo se puede anular una orden facturada; esta está ${orden.estado}`,
+            409
+        );
+    }
+    if (!orden.factus_number) {
+        throw new OrdenError('La orden no tiene número de factura', 409);
+    }
+
+    const items = await consultar(db,
+        'SELECT * FROM facturacion_orden_items WHERE orden_id = ?', [orden.id]);
+
+    const referencia = orden.referencia + '-NC';
+
+    try {
+        const nota = await facturacion.emitirNotaCredito({
+            referencia,
+            numeroFactura: orden.factus_number,
+            concepto: concepto || '2',   // anulación de factura electrónica
+            observacion: motivo || `Anulación de la factura ${orden.factus_number}`,
+            total: orden.total,
+            cliente: {
+                tipo_documento: orden.cliente_tipo_documento || '13',
+                documento: orden.cliente_documento,
+                nombre: orden.cliente_nombre,
+                email: orden.cliente_email,
+            },
+            items,
+        });
+
+        await consultar(db, `
+            UPDATE facturacion_ordenes
+               SET estado = 'anulada',
+                   nota_credito_number = ?, nota_credito_cude = ?,
+                   nota_credito_url = ?, nota_credito_motivo = ?,
+                   nota_credito_at = NOW()
+             WHERE id = ?
+        `, [
+            nota.numero, nota.cude, nota.publicUrl,
+            (motivo || '').slice(0, 500), orden.id,
+        ]);
+
+        // Si la orden pagaba una reserva, esa reserva se cancela.
+        if (orden.reserva_id) {
+            await consultar(db,
+                "UPDATE reservas SET estado='cancelada', motivo_cancelacion=? WHERE id=?",
+                [(motivo || 'Factura anulada').slice(0, 255), orden.reserva_id]
+            ).catch(() => {});
+        }
+
+        await registrarEvento(db, {
+            ordenId: orden.id, referencia: orden.referencia,
+            fuente: 'facturacion', evento: 'nota_credito_emitida',
+            resultado: 'ok',
+            mensaje: `Nota ${nota.numero} sobre la factura ${orden.factus_number}. ${motivo || ''}`.trim(),
+        });
+
+        console.log(`[factus-fact] ${orden.referencia} anulada con la nota ${nota.numero}`);
+        return nota;
+    } catch (error) {
+        await registrarEvento(db, {
+            ordenId: orden.id, referencia: orden.referencia,
+            fuente: 'facturacion', evento: 'nota_credito_fallida',
+            resultado: 'error', mensaje: String(error.message).slice(0, 400),
+        });
+        throw new OrdenError(
+            'No se pudo emitir la nota crédito: ' + error.message,
+            502
+        );
+    }
+}
+
 // Registrar un evento. La clave única (fuente, referencia, evento) hace
 // que un duplicado no cree otra fila: se cuenta como intento repetido.
 async function registrarEvento(db, { ordenId, referencia, fuente, evento, resultado, mensaje, payload = null }) {
@@ -785,6 +882,7 @@ async function registrarEvento(db, { ordenId, referencia, fuente, evento, result
 
 module.exports = {
     crearOrden,
+    anularConNotaCredito,
     enviarFacturaAlCliente,
     renovarRecaudo,
     emitirFacturaDeOrden,

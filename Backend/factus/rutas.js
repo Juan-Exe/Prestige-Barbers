@@ -206,6 +206,82 @@ function construirRutas({ db, verificarToken }) {
     );
 
     // -----------------------------------------------------------------
+    //  POST /api/factus/ordenes/:referencia/anular
+    //
+    //  Emite una nota crédito que anula la factura ante la DIAN.
+    //  SOLO administradores: mueve dinero y queda registrado ante la
+    //  autoridad fiscal, así que no puede quedar en manos del cliente.
+    // -----------------------------------------------------------------
+    router.post('/ordenes/:referencia/anular',
+        verificarToken,
+        param('referencia').isLength({ min: 3, max: 100 }).matches(/^[A-Z0-9-]+$/i),
+        body('motivo')
+            .trim()
+            .isLength({ min: 5, max: 500 })
+            .withMessage('Explica el motivo de la anulación (mínimo 5 caracteres)'),
+        body('concepto')
+            .optional({ checkFalsy: true })
+            .isIn(['1', '2', '3', '4', '5', '6'])
+            .withMessage('Concepto de corrección inválido'),
+
+        async (req, res) => {
+            if (errores(req, res)) return;
+
+            try {
+                // Comprobación de rol contra la base de datos, no contra
+                // lo que diga el token.
+                const u = await new Promise((resolve, reject) => {
+                    db.query('SELECT rol FROM usuarios WHERE id = ?', [req.userId],
+                        (err, r) => (err ? reject(err) : resolve(r)));
+                });
+
+                if (u.length === 0 || u[0].rol !== 'admin') {
+                    console.warn(`[factus] Intento de anulación sin permisos - usuario ${req.userId}`);
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Solo un administrador puede anular una factura',
+                    });
+                }
+
+                const filas = await new Promise((resolve, reject) => {
+                    db.query('SELECT id FROM facturacion_ordenes WHERE referencia = ?',
+                        [req.params.referencia],
+                        (err, r) => (err ? reject(err) : resolve(r)));
+                });
+
+                if (filas.length === 0) {
+                    return res.status(404).json({ success: false, message: 'Orden no encontrada' });
+                }
+
+                const nota = await ordenes.anularConNotaCredito(db, filas[0].id, {
+                    motivo: req.body.motivo,
+                    concepto: req.body.concepto,
+                });
+
+                if (nota.yaAnulada) {
+                    return res.json({
+                        success: true,
+                        message: `Ya estaba anulada con la nota ${nota.numero}`,
+                        nota,
+                    });
+                }
+
+                return res.json({
+                    success: true,
+                    message: `Nota crédito ${nota.numero} emitida`,
+                    nota: {
+                        numero: nota.numero,
+                        cude: nota.cude,
+                        public_url: nota.publicUrl,
+                    },
+                });
+            } catch (error) {
+                return responderError(res, error, 'anular factura');
+            }
+        }
+    );
+
+    // -----------------------------------------------------------------
     //  POST /api/factus/ordenes/:referencia/renovar-qr
     //
     //  Cuando el QR vence, Factus permite renovarlo reenviando el mismo
@@ -379,7 +455,9 @@ function construirRutas({ db, verificarToken }) {
                            cliente_tipo_documento,
                            factus_number, factus_cufe, factus_public_url,
                            factus_qr_url, factus_resolucion,
-                           factus_validated_at, pay_paid_at, created_at
+                           factus_validated_at, pay_paid_at, created_at,
+                           nota_credito_number, nota_credito_cude,
+                           nota_credito_url, nota_credito_motivo, nota_credito_at
                       FROM facturacion_ordenes
                      WHERE usuario_id = ?
                      ORDER BY id DESC
@@ -440,6 +518,14 @@ function construirRutas({ db, verificarToken }) {
                             documento: o.cliente_documento,
                             tipo_documento: o.cliente_tipo_documento,
                         },
+                    } : null,
+                    // Si la factura fue anulada, la nota que la corrige.
+                    nota_credito: o.nota_credito_number ? {
+                        numero: o.nota_credito_number,
+                        cude: o.nota_credito_cude,
+                        public_url: o.nota_credito_url,
+                        motivo: o.nota_credito_motivo,
+                        emitida_en: o.nota_credito_at,
                     } : null,
                 })),
             });

@@ -905,3 +905,20 @@ footer p {
 .compra-estado {
     flex: 0 0 auto;
 }
+
+/* ---- Nota crédito ---- */
+.compra-nota {
+    margin: 12px 0 0;
+    padding: 14px 16px;
+    background: #f9f9f9;
+    border: 1px dashed #666;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.nota-motivo {
+    font-size: 0.86rem;
+    color: #666;
+    font-style: italic;
+}

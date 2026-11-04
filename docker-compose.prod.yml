@@ -1,0 +1,36 @@
+# =====================================================================
+#  Configuracion para PRODUCCION
+#
+#  Uso en el servidor:
+#    docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+#  Importante: se pasan los dos archivos con -f a proposito, para que
+#  Docker NO cargue docker-compose.override.yml (que es de desarrollo
+#  y forzaria NODE_ENV=development y volumenes locales).
+# =====================================================================
+
+services:
+  mariadb:
+    # La base de datos NO se expone a internet: solo es accesible desde
+    # la red interna de Docker, que es donde vive el backend.
+    ports: !reset []
+
+  backend:
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+    # Sin montar el codigo: la imagen se construye con el frontend dentro.
+    # Cualquier cambio requiere reconstruir con --build.
+    volumes:
+      - ./Backend/uploads:/app/uploads
+      - ./Backend/logs:/app/logs
+    ports:
+      - "${APP_PORT:-3000}:3000"
+
+  adminer:
+    # Adminer es un panel de administracion de base de datos sin capa de
+    # proteccion propia. Se deja accesible SOLO desde el propio servidor:
+    # para usarlo, abre un tunel SSH desde tu PC:
+    #   ssh -L 8080:localhost:8080 root@149.104.75.63
+    # y entra a http://localhost:8080 en tu navegador.
+    ports:
+      - "127.0.0.1:${ADMINER_PORT:-8080}:8080"

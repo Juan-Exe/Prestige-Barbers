@@ -597,6 +597,7 @@ footer p {
     justify-content: space-between;
     align-items: center;
     gap: 12px;
+    row-gap: 10px;
     flex-wrap: wrap;
     padding: 15px 20px;
     background: #f9f9f9;
@@ -891,10 +892,6 @@ footer p {
 
 /* El encabezado de cada compra: la referencia es larga y el estado no
    siempre cabe al lado. */
-.compra-header {
-    row-gap: 10px;
-}
-
 .compra-referencia {
     flex: 1 1 200px;
     min-width: 0;

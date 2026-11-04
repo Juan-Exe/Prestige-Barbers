@@ -551,3 +551,24 @@ footer p {
         width: 100%;
     }
 }
+
+/* ==================== ESTADOS DE CARGA DE RESERVAS ==================== */
+.reservas-cargando {
+    padding: 30px 20px;
+    text-align: center;
+    color: #666;
+    font-size: 0.95rem;
+}
+
+.reservas-error {
+    padding: 30px 20px;
+    text-align: center;
+    border: 1px solid #1b1b1b;
+    background: #f9f9f9;
+}
+
+.reservas-error p {
+    margin: 0 0 20px;
+    color: #1b1b1b;
+    font-size: 0.95rem;
+}

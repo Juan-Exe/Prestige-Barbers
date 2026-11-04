@@ -79,9 +79,13 @@ class CarritoManager {
         const existe = this.carrito.find(item => item.id === producto.id);
 
         if (existe) {
-            // Mostrar mensaje de que ya está en el carrito
-            this.mostrarNotificacion('Este producto ya está en tu carrito');
-            return false;
+            // Ya esta en el carrito: sumamos una unidad mas
+            existe.cantidad = (existe.cantidad || 1) + 1;
+            this.guardarCarrito();
+            this.actualizarUI();
+            this.mostrarNotificacion('Se agrego otra unidad al carrito', 'success');
+            this.animarBadge();
+            return true;
         }
 
         // Agregar producto
@@ -91,7 +95,8 @@ class CarritoManager {
             nombre: producto.nombre,
             precio: producto.precio,
             imagen: producto.imagen,
-            tamano: producto.tamano
+            tamano: producto.tamano,
+            cantidad: 1
         });
 
         this.guardarCarrito();
@@ -115,14 +120,31 @@ class CarritoManager {
     // Obtener total del carrito
     obtenerTotal() {
         return this.carrito.reduce((total, item) => {
-            const precio = parseFloat(item.precio);
-            return total + precio;
+            const precio = parseFloat(item.precio) || 0;
+            const cant = item.cantidad || 1;
+            return total + (precio * cant);
         }, 0);
+    }
+
+    // Cambiar la cantidad de un producto (elimina si llega a 0)
+    cambiarCantidad(productoId, delta) {
+        const item = this.carrito.find(p => p.id === productoId);
+        if (!item) return;
+
+        item.cantidad = (item.cantidad || 1) + delta;
+
+        if (item.cantidad < 1) {
+            this.eliminarProducto(productoId);
+            return;
+        }
+
+        this.guardarCarrito();
+        this.actualizarUI();
     }
 
     // Obtener cantidad de productos
     obtenerCantidad() {
-        return this.carrito.length;
+        return this.carrito.reduce((n, item) => n + (item.cantidad || 1), 0);
     }
 
     // Actualizar toda la interfaz
@@ -201,7 +223,12 @@ class CarritoManager {
                     <div class="carrito-item-marca">${item.marca}</div>
                     <div class="carrito-item-nombre">${item.nombre}</div>
                     <div class="carrito-item-tamano" style="font-size: 0.8em; color: #666;">${item.tamano}</div>
-                    <div class="carrito-item-precio">$${this.formatearPrecio(item.precio)}</div>
+                    <div class="carrito-item-precio">$${this.formatearPrecio(item.precio * (item.cantidad || 1))}</div>
+                    <div class="carrito-item-cantidad">
+                        <button class="cant-btn" data-id="${item.id}" data-delta="-1" aria-label="Quitar una unidad">&minus;</button>
+                        <span class="cant-valor">${item.cantidad || 1}</span>
+                        <button class="cant-btn" data-id="${item.id}" data-delta="1" aria-label="Agregar una unidad">+</button>
+                    </div>
                     <button class="carrito-item-remove" data-id="${item.id}">Eliminar</button>
                 </div>
             </div>
@@ -213,6 +240,15 @@ class CarritoManager {
         if (this.carritoFooter) {
             this.carritoFooter.style.display = 'block';
         }
+
+        // Botones de cantidad (+ / -)
+        this.carritoItemsList.querySelectorAll('.cant-btn').forEach(boton => {
+            boton.addEventListener('click', (e) => {
+                const id = parseInt(e.currentTarget.dataset.id);
+                const delta = parseInt(e.currentTarget.dataset.delta);
+                this.cambiarCantidad(id, delta);
+            });
+        });
 
         // Agregar event listeners a botones de eliminar
         const botonesEliminar = this.carritoItemsList.querySelectorAll('.carrito-item-remove');

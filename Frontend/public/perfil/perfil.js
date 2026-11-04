@@ -175,9 +175,171 @@ function inicializarTabs() {
             if (tabContent) {
                 tabContent.classList.add('active');
             }
+
+            // Cargar las reservas la primera vez que se abre la pestana
+            if (tabName === 'reservas') {
+                cargarMisReservas();
+            }
         });
     });
 }
+
+
+// ==================== MIS RESERVAS ====================
+let reservasYaCargadas = false;
+
+async function cargarMisReservas(forzar = false) {
+    if (reservasYaCargadas && !forzar) return;
+
+    const contenedor = document.getElementById('reservasContainer');
+    const vacio = document.getElementById('emptyState');
+    if (!contenedor) return;
+
+    const token = localStorage.getItem('auth_token');
+    const userData = localStorage.getItem('user_data');
+    if (!token || !userData) return;
+
+    let usuario;
+    try {
+        usuario = JSON.parse(userData);
+    } catch (e) {
+        return;
+    }
+    if (!usuario || !usuario.id) return;
+
+    contenedor.style.display = 'block';
+    contenedor.innerHTML = '<p class="reservas-cargando">Cargando tus reservas...</p>';
+    if (vacio) vacio.style.display = 'none';
+
+    try {
+        const resp = await fetch(`/api/reservas/usuario/${usuario.id}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Accept': 'application/json'
+            }
+        });
+
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
+        const data = await resp.json();
+        const reservas = (data && data.reservas) ? data.reservas : [];
+
+        reservasYaCargadas = true;
+
+        if (reservas.length === 0) {
+            contenedor.style.display = 'none';
+            contenedor.innerHTML = '';
+            if (vacio) vacio.style.display = 'block';
+            return;
+        }
+
+        // Mas recientes primero
+        reservas.sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+
+        contenedor.innerHTML = reservas.map(renderReserva).join('');
+
+        // Conectar los botones de cancelar
+        contenedor.querySelectorAll('.btn-cancelar-reserva').forEach(btn => {
+            btn.addEventListener('click', () => cancelarReserva(btn.dataset.id, btn));
+        });
+    } catch (error) {
+        console.error('Error al cargar reservas:', error);
+        contenedor.style.display = 'block';
+        contenedor.innerHTML = `
+            <div class="reservas-error">
+                <p>No pudimos cargar tus reservas.</p>
+                <button class="btn-primary" onclick="cargarMisReservas(true)">Reintentar</button>
+            </div>`;
+    }
+}
+
+function escaparHtml(texto) {
+    const div = document.createElement('div');
+    div.textContent = texto == null ? '' : String(texto);
+    return div.innerHTML;
+}
+
+function renderReserva(r) {
+    const estado = (r.estado || 'pendiente').toLowerCase();
+
+    let fechaTexto = r.fecha || '';
+    try {
+        const d = new Date(r.fecha);
+        if (!isNaN(d)) {
+            fechaTexto = d.toLocaleDateString('es-CO', {
+                weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+            });
+        }
+    } catch (e) {}
+
+    const hora = r.hora ? String(r.hora).slice(0, 5) : '';
+
+    const adicional = r.servicio_adicional_nombre
+        ? `<p class="reserva-servicio-adicional">+ ${escaparHtml(r.servicio_adicional_nombre)}</p>`
+        : '';
+
+    const cancelable = (estado === 'pendiente' || estado === 'confirmada')
+        ? `<div class="reserva-footer">
+               <button class="btn-cancelar-reserva" data-id="${r.id}">Cancelar reserva</button>
+           </div>`
+        : '';
+
+    return `
+        <article class="reserva-card">
+            <header class="reserva-header">
+                <span class="reserva-id">Reserva #${escaparHtml(r.id)}</span>
+                <span class="reserva-estado estado-${escaparHtml(estado)}">${escaparHtml(estado)}</span>
+            </header>
+            <div class="reserva-body">
+                <div class="reserva-info-principal">
+                    <p class="reserva-servicio"><strong>${escaparHtml(r.servicio_nombre)}</strong></p>
+                    ${adicional}
+                    <p class="reserva-barbero">Barbero: <strong>${escaparHtml(r.barbero_nombre || 'Por asignar')}</strong></p>
+                    <p class="reserva-fecha-hora">
+                        <span class="fecha-icon">&#128197;</span><span style="text-transform:capitalize;">${escaparHtml(fechaTexto)}</span>
+                        ${hora ? '<br><span class="hora-icon">&#128339;</span>' + escaparHtml(hora) : ''}
+                    </p>
+                </div>
+            </div>
+            ${cancelable}
+        </article>`;
+}
+
+
+async function cancelarReserva(id, boton) {
+    if (!confirm('Seguro que quieres cancelar esta reserva?')) return;
+
+    const token = localStorage.getItem('auth_token');
+    if (!token) return;
+
+    const textoOriginal = boton.textContent;
+    boton.disabled = true;
+    boton.textContent = 'Cancelando...';
+
+    try {
+        const resp = await fetch(`/api/reservas/${id}/cancelar`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({ motivo: 'Cancelada por el usuario' })
+        });
+
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
+        await cargarMisReservas(true);
+        mostrarMensaje('Reserva cancelada', 'success');
+    } catch (error) {
+        console.error('Error al cancelar reserva:', error);
+        boton.disabled = false;
+        boton.textContent = textoOriginal;
+        mostrarMensaje('No se pudo cancelar la reserva', 'error');
+    }
+}
+
+window.cargarMisReservas = cargarMisReservas;
 
 // ==================== EDICIÓN DE INFORMACIÓN ====================
 function inicializarEdicion() {

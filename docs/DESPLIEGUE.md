@@ -2,7 +2,7 @@
 
 Servidor en LightNode (Bogotá), Ubuntu 24.04.2 LTS, 1 vCPU / 4 GB RAM / 50 GB.
 
-**Aplicación:** http://149.104.75.63:3000
+**Aplicación:** https://prestigebarber.store
 
 ---
 
@@ -20,9 +20,11 @@ Proyecto en `/opt/Prestige-Barbers`.
 
 | Contenedor | Puerto | Accesible desde |
 |---|---|---|
-| `prestige-barbers-backend` | 3000 | internet |
+| `prestige-barbers-backend` | 3000 | solo Nginx (bloqueado desde internet) |
 | `prestige-barbers-db` | 3306 | solo red interna de Docker |
-| `prestige-barbers-adminer` | 8080 | solo `127.0.0.1` (túnel SSH) |
+| `prestige-barbers-adminer` | — | desactivado en producción |
+
+Nginx 1.24 recibe el tráfico en 443 y lo pasa al backend por el 3000 local.
 
 ---
 
@@ -72,34 +74,88 @@ El repositorio traía un `.env` de desarrollo con permisos `644` y
 - Permisos a `600`.
 - Copia del anterior en `.env.backup-<timestamp>`.
 
-### `NODE_ENV` se dejó en `development` a propósito
+### `NODE_ENV=production`
 
-En `production` el servidor activa HSTS y `upgrade-insecure-requests`, que
-obligan al navegador a pedir todo por HTTPS. Sirviendo por
-`http://149.104.75.63:3000` sin certificado, eso **rompe la carga de
-estilos e imágenes**.
+Activo desde que existe HTTPS. Con él, el servidor envía HSTS y
+`upgrade-insecure-requests`, que ahora son correctos.
 
-Cambiar a `production` solo cuando haya dominio con HTTPS configurado.
+`ALLOWED_ORIGINS` apunta a `https://prestigebarber.store` y su `www`.
+
+---
+
+## HTTPS
+
+Dominio `prestigebarber.store` (Hostinger), con registros A de `@` y `www`
+apuntando a `149.104.75.63`.
+
+Certificado de Let's Encrypt emitido con Certbot:
+
+```bash
+apt-get install -y nginx certbot python3-certbot-nginx
+certbot --nginx -d prestigebarber.store -d www.prestigebarber.store     --non-interactive --agree-tos -m <correo> --redirect
+```
+
+- Caduca el **2027-02-02**; `certbot.timer` está activo y renueva solo.
+- Nginx redirige todo el tráfico de HTTP a HTTPS con un 301.
+- El proxy pasa `X-Forwarded-Proto`, que evita un bucle de redirección
+  cuando el backend está en modo producción.
+
+### El puerto 3000 está cerrado desde internet
+
+Docker inserta sus reglas en la cadena `DOCKER-USER`, que se evalúa **antes**
+que ufw: por eso `ufw deny 3000` no basta. La regla efectiva es:
+
+```bash
+iptables -I DOCKER-USER -p tcp --dport 3000 ! -s 127.0.0.1 -i <iface> -j DROP
+```
+
+Guardada con `iptables-persistent` para que sobreviva a los reinicios.
+
+### Dos tropiezos de Docker 29.1.3
+
+1. **Bind a `127.0.0.1` falla.** Publicar como `127.0.0.1:3000:3000` da
+   `failed to bind host port ... address already in use` aunque nada escuche
+   en ese puerto. Se dejó el bind normal y el cierre se hace con iptables.
+
+2. **Adminer bloqueaba el arranque.** Su fallo al enlazar el 8080 abortaba
+   todo el `up`, dejando el backend sin levantar. Se movió al perfil `debug`,
+   así que no arranca salvo que se pida explícitamente.
+
+Para consultar la base de datos sin Adminer:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml     exec mariadb mariadb -u root -p barberia
+```
 
 ---
 
 ## Verificación realizada
 
-Desde internet:
+Desde internet, por HTTPS:
 
 ```
-home        HTTP 200  (0.43 s)
-/api/productos  HTTP 200
-/I-style/styles.css  HTTP 200
-imagen de producto   HTTP 200  (67 KB, image/jpeg)
-portada              HTTP 200  (2.1 MB)
+https://prestigebarber.store/          HTTP 200  (0.71 s)
+https://www.prestigebarber.store/      HTTP 200
+/api/productos                         HTTP 200
+/I-style/styles.css                    HTTP 200
+imagen de producto                     HTTP 200  (67 KB)
+http://prestigebarber.store/      -->  301 a https://
+```
+
+Cabeceras que llegan en producción:
+
+```
+Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+Content-Security-Policy:   ... upgrade-insecure-requests
+X-Frame-Options:           DENY
+X-Content-Type-Options:    nosniff
 ```
 
 Puertos que **no** responden desde fuera (correcto):
 
 ```
-3306 (MariaDB)  sin respuesta
-8080 (Adminer)  sin respuesta
+3000 (aplicación)  sin respuesta
+3306 (MariaDB)     sin respuesta
 ```
 
 Flujos probados:
@@ -166,16 +222,12 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T mariadb 
 
 ## Pendientes
 
-1. **HTTPS.** Hoy el tráfico viaja sin cifrar, incluidas las contraseñas de
-   login. Con un dominio se resuelve con Nginx + Certbot, y entonces se puede
-   poner `NODE_ENV=production`.
-
-2. **Credenciales en el volcado.** `barberia.sql` contiene usuarios de prueba
+1. **Credenciales en el volcado.** `barberia.sql` contiene usuarios de prueba
    con contraseñas conocidas. Conviene limpiarlos antes de usar en serio.
 
-3. **Copias de seguridad automáticas.** No hay ninguna programada; los datos
+2. **Copias de seguridad automáticas.** No hay ninguna programada; los datos
    viven en el volumen `prestige-barbers_mariadb_data`.
 
-4. **`docker-compose.override.yml` versionado.** Es un riesgo: si alguien
+3. **`docker-compose.override.yml` versionado.** Es un riesgo: si alguien
    levanta sin los `-f` explícitos, arranca en modo desarrollo con la base de
    datos expuesta. Conviene sacarlo del repositorio.

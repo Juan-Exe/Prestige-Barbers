@@ -27,10 +27,13 @@ services:
       - "${APP_PORT:-3000}:3000"
 
   adminer:
-    # Adminer es un panel de administracion de base de datos sin capa de
-    # proteccion propia. Se deja accesible SOLO desde el propio servidor:
-    # para usarlo, abre un tunel SSH desde tu PC:
-    #   ssh -L 8080:localhost:8080 root@149.104.75.63
-    # y entra a http://localhost:8080 en tu navegador.
-    ports:
-      - "127.0.0.1:${ADMINER_PORT:-8080}:8080"
+    # Adminer queda DESACTIVADO en produccion: es un panel de administracion
+    # de base de datos sin proteccion propia y no hace falta para que la
+    # aplicacion funcione. Ademas, su fallo al enlazar el puerto abortaba
+    # el arranque de todo el stack (Docker 29.1.3).
+    #
+    # Para consultar la base de datos directamente:
+    #   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+    #       exec mariadb mariadb -u root -p barberia
+    profiles: ["debug"]
+    ports: !reset []

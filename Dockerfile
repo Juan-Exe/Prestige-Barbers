@@ -34,11 +34,13 @@ EXPOSE 3000
 
 # Health check
 # 127.0.0.1 y no localhost: en Node 18 localhost resuelve primero a ::1
-# (IPv6) y el servidor escucha en 0.0.0.0, que es solo IPv4. El on('error')
-# hace que un fallo de red termine con codigo 1 limpio, en vez de lanzar
-# una excepcion sin capturar que ensucia el log.
+# (IPv6) y el servidor escucha en 0.0.0.0, que es solo IPv4.
+#
+# x-forwarded-proto: en produccion server.js redirige con 301 todo lo que
+# llega por HTTP, asi que sin esta cabecera el check mide la redireccion
+# en vez de la aplicacion. Es la misma que envia Nginx.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD node -e "require('http').get('http://127.0.0.1:3000/api/auth/me',r=>process.exit(r.statusCode===401?0:1)).on('error',()=>process.exit(1))"
+    CMD node -e "require('http').get({host:'127.0.0.1',port:3000,path:'/api/auth/me',headers:{'x-forwarded-proto':'https'}},r=>process.exit(r.statusCode===401?0:1)).on('error',()=>process.exit(1))"
 
 # Usar dumb-init para ejecutar la aplicación
 ENTRYPOINT ["dumb-init", "--"]

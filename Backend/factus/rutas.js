@@ -282,6 +282,88 @@ function construirRutas({ db, verificarToken }) {
     );
 
     // -----------------------------------------------------------------
+    //  POST /api/factus/ordenes/:referencia/nota-debito
+    //
+    //  Carga un valor ADICIONAL sobre una factura emitida: intereses,
+    //  gastos por cobrar, un ajuste al alza.
+    //
+    //  Solo administradores, igual que la nota credito: cobra dinero al
+    //  cliente y queda registrado ante la DIAN.
+    // -----------------------------------------------------------------
+    router.post('/ordenes/:referencia/nota-debito',
+        verificarToken,
+        param('referencia').isLength({ min: 3, max: 100 }).matches(/^[A-Z0-9-]+$/i),
+        body('motivo')
+            .trim()
+            .isLength({ min: 5, max: 500 })
+            .withMessage('Explica el motivo del cargo (minimo 5 caracteres)'),
+        body('concepto')
+            .optional({ checkFalsy: true })
+            .isIn(['1', '2', '3', '4'])
+            .withMessage('Concepto invalido: 1 intereses, 2 gastos por cobrar, 3 cambio del valor, 4 otros'),
+        body('conceptos')
+            .isArray({ min: 1, max: 20 })
+            .withMessage('Indica al menos un concepto a cobrar'),
+        body('conceptos.*.descripcion')
+            .trim()
+            .isLength({ min: 3, max: 200 })
+            .withMessage('Cada concepto necesita una descripcion'),
+        body('conceptos.*.valor')
+            .isFloat({ min: 1, max: 12100000 })
+            .withMessage('El valor debe estar entre 1 y 12.100.000 COP'),
+
+        async (req, res) => {
+            if (errores(req, res)) return;
+
+            try {
+                const u = await new Promise((resolve, reject) => {
+                    db.query('SELECT rol FROM usuarios WHERE id = ?', [req.userId],
+                        (err, r) => (err ? reject(err) : resolve(r)));
+                });
+
+                if (u.length === 0 || u[0].rol !== 'admin') {
+                    console.warn('[factus] Intento de nota debito sin permisos - usuario ' + req.userId);
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Solo un administrador puede emitir una nota debito',
+                    });
+                }
+
+                const filas = await new Promise((resolve, reject) => {
+                    db.query('SELECT id FROM facturacion_ordenes WHERE referencia = ?',
+                        [req.params.referencia],
+                        (err, r) => (err ? reject(err) : resolve(r)));
+                });
+
+                if (filas.length === 0) {
+                    return res.status(404).json({ success: false, message: 'Orden no encontrada' });
+                }
+
+                const nota = await ordenes.emitirNotaDebitoDeOrden(db, filas[0].id, {
+                    concepto: req.body.concepto,
+                    motivo: req.body.motivo,
+                    conceptos: req.body.conceptos,
+                });
+
+                return res.json({
+                    success: true,
+                    message: 'Nota debito ' + nota.numero + ' emitida por $' + nota.total,
+                    nota: {
+                        numero: nota.numero,
+                        cude: nota.cude,
+                        public_url: nota.publicUrl,
+                        subtotal: nota.subtotal,
+                        impuestos: nota.impuestos,
+                        total: nota.total,
+                    },
+                });
+            } catch (error) {
+                return responderError(res, error, 'emitir nota debito');
+            }
+        }
+    );
+
+    // -----------------------------------------------------------------
     //  POST /api/factus/ordenes/:referencia/renovar-qr
     //
     //  Cuando el QR vence, Factus permite renovarlo reenviando el mismo
@@ -480,6 +562,31 @@ function construirRutas({ db, verificarToken }) {
                 });
             }
 
+            // Notas debito de todas las ordenes, en una sola consulta.
+            let notasDebito = [];
+            if (ids.length > 0) {
+                notasDebito = await new Promise((resolve, reject) => {
+                    db.query(
+                        'SELECT orden_id, numero, cude, public_url, motivo, total, created_at ' +
+                        'FROM facturacion_notas_debito ' +
+                        'WHERE orden_id IN (?) AND estado = ? ORDER BY id',
+                        [ids, 'emitida'],
+                        (err, r) => (err ? reject(err) : resolve(r))
+                    );
+                });
+            }
+            const debitoPorOrden = {};
+            for (const n of notasDebito) {
+                (debitoPorOrden[n.orden_id] = debitoPorOrden[n.orden_id] || []).push({
+                    numero: n.numero,
+                    cude: n.cude,
+                    public_url: n.public_url,
+                    motivo: n.motivo,
+                    total: Number(n.total).toFixed(2),
+                    emitida_en: n.created_at,
+                });
+            }
+
             const porOrden = {};
             for (const i of items) {
                 (porOrden[i.orden_id] = porOrden[i.orden_id] || []).push({
@@ -520,6 +627,7 @@ function construirRutas({ db, verificarToken }) {
                         },
                     } : null,
                     // Si la factura fue anulada, la nota que la corrige.
+                    notas_debito: debitoPorOrden[o.id] || [],
                     nota_credito: o.nota_credito_number ? {
                         numero: o.nota_credito_number,
                         cude: o.nota_credito_cude,

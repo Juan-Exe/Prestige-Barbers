@@ -179,6 +179,29 @@ async function obtenerRangoNumeracion(tipo) {
 }
 
 // ---------------------------------------------------------------------
+//  Total de un documento, como lo calcula Factus
+//
+//  El monto del pago debe coincidir EXACTAMENTE con el que Factus
+//  obtiene de las bases y las tasas, o responde 422:
+//
+//    "La suma de todos los detalles de pago no es igual al total.
+//     Esperado: 46,899.99 - Enviado: 46,900.00"
+//
+//  Factus redondea CADA LINEA al centimo y luego suma. Redondear solo
+//  la suma, o truncarla, falla: el truncado acertaba en una factura de
+//  46.899,99 y fallaba en una nota de 2.500,00.
+// ---------------------------------------------------------------------
+function calcularTotalDocumento(items) {
+    const centimos = items.reduce((suma, i) => {
+        const base = Number(i.precio_neto_unitario) * Number(i.cantidad);
+        const impuesto = base * (Number(i.tasa_impuesto) / 100);
+        // Cada linea al centimo, como hace Factus.
+        return suma + Math.round(base * 100) + Math.round(impuesto * 100);
+    }, 0);
+    return (centimos / 100).toFixed(2);
+}
+
+// ---------------------------------------------------------------------
 //  Emitir y validar una factura
 //
 //  Es idempotente por reference_code: si esa referencia ya se facturó,
@@ -197,13 +220,7 @@ async function emitirFactura({ referencia, cliente, items, total, observacion })
     // Así que el total se recalcula aquí con el mismo criterio: base
     // por cantidad, más su impuesto, truncando a dos decimales como
     // hace Factus.
-    const totalCalculado = items.reduce((suma, i) => {
-        const base = Number(i.precio_neto_unitario) * Number(i.cantidad);
-        const impuesto = base * (Number(i.tasa_impuesto) / 100);
-        return suma + base + impuesto;
-    }, 0);
-
-    const totalParaPago = (Math.floor(totalCalculado * 100) / 100).toFixed(2);
+    const totalParaPago = calcularTotalDocumento(items);
 
     const cuerpoFactura = {
         reference_code: referencia,
@@ -438,11 +455,7 @@ async function emitirNotaCredito({ referencia, numeroFactura, cliente, items, to
 
     // El total debe cuadrar con el que calcula Factus desde las bases,
     // igual que en la factura: un centavo de diferencia da 422.
-    const totalCalculado = items.reduce((suma, i) => {
-        const base = Number(i.precio_neto_unitario) * Number(i.cantidad);
-        return suma + base + base * (Number(i.tasa_impuesto) / 100);
-    }, 0);
-    const totalPago = (Math.floor(totalCalculado * 100) / 100).toFixed(2);
+    const totalPago = calcularTotalDocumento(items);
 
     const cuerpoNota = {
         reference_code: referencia,
@@ -513,9 +526,109 @@ async function emitirNotaCredito({ referencia, numeroFactura, cliente, items, to
     };
 }
 
+
+// ---------------------------------------------------------------------
+//  Nota débito
+//
+//  Lo contrario de la crédito: AUMENTA el valor facturado. Se usa para
+//  cobrar algo adicional sobre una factura ya emitida.
+//
+//  Conceptos de la DIAN:
+//    1  Intereses
+//    2  Gastos por cobrar
+//    3  Cambio del valor
+//    4  Otros
+//
+//  En una barbería casi nunca aplica: el cliente paga por adelantado
+//  con el QR, así que no hay mora que genere intereses. Se implementa
+//  para cubrir el ciclo fiscal completo.
+// ---------------------------------------------------------------------
+async function emitirNotaDebito({ referencia, numeroFactura, cliente, items, concepto, observacion }) {
+    if (!numeroFactura) {
+        throw new FacturacionError('Hace falta el número de la factura a la que cargar la nota');
+    }
+    if (!items || items.length === 0) {
+        throw new FacturacionError('La nota débito necesita al menos un concepto a cobrar');
+    }
+
+    const totalPago = calcularTotalDocumento(items);
+
+    const cuerpoNota = {
+        reference_code: referencia,
+        correction_concept_code: String(concepto || '4'),  // 4 = otros
+        // 30 es la nota débito con referencia a una factura electrónica.
+        customization_id: '30',
+        bill_number: numeroFactura,
+        observation: (observacion || `Nota débito sobre la factura ${numeroFactura}`).slice(0, 500),
+        send_email: false,
+
+        payment_details: [{
+            payment_form: '1',
+            payment_method_code: '47',
+            reference_code: referencia,
+            amount: totalPago,
+        }],
+
+        customer: {
+            identification_document_code: cliente.tipo_documento || '13',
+            identification: cliente.documento,
+            legal_organization_code: '2',
+            tribute_code: 'ZZ',
+            names: cliente.nombre,
+            email: cliente.email || undefined,
+        },
+
+        items: items.map((i) => ({
+            code_reference: i.codigo_referencia,
+            name: i.nombre,
+            quantity: Number(i.cantidad),
+            price: Number(i.precio_neto_unitario).toFixed(2),
+            discount_rate: '0.00',
+            unit_measure_code: '94',
+            standard_code: '999',
+            is_excluded: 0,
+            withholding_taxes: [],
+            taxes: [{ code: '01', rate: Number(i.tasa_impuesto).toFixed(2) }],
+        })),
+    };
+
+    const rango = await obtenerRangoNumeracion('nota_debito');
+    if (rango) cuerpoNota.numbering_range_id = rango;
+
+    const { status, ok, cuerpo } = await peticionAutenticada('/v2/debit-notes/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cuerpoNota),
+    });
+
+    if (!ok) {
+        const motivo = (cuerpo && cuerpo.message) || `código ${status}`;
+        throw new FacturacionError(
+            `La DIAN rechazó la nota débito: ${motivo}`,
+            { status, cuerpo, transitorio: status >= 500 }
+        );
+    }
+
+    // Igual que en la crédito: la nota está en la raíz de `data`, y
+    // `data.bill` es la factura referenciada.
+    const nota = (cuerpo && cuerpo.data) || {};
+    const links = nota.links || {};
+
+    return {
+        numero: nota.number || nota.name || null,
+        cude: nota.cude || null,
+        publicUrl: links.public_url || nota.public_url || null,
+        qrUrl: links.qr || nota.qr || null,
+        total: totalPago,
+        mensaje: cuerpo && cuerpo.message,
+        crudo: nota,
+    };
+}
+
 module.exports = {
     emitirFactura,
     emitirNotaCredito,
+    emitirNotaDebito,
     enviarFacturaPorCorreo,
     descargarDocumento,
     consultarFactura,

@@ -858,6 +858,133 @@ async function anularConNotaCredito(db, ordenId, { motivo, concepto } = {}) {
     }
 }
 
+// ---------------------------------------------------------------------
+//  Emitir una nota débito
+//
+//  Carga un valor ADICIONAL sobre una factura ya emitida: intereses,
+//  gastos por cobrar, un ajuste al alza. La factura original no cambia;
+//  la nota se suma a ella.
+//
+//  Una factura puede recibir varias a lo largo del tiempo, así que van
+//  en su propia tabla.
+// ---------------------------------------------------------------------
+async function emitirNotaDebitoDeOrden(db, ordenId, { concepto, motivo, conceptos }) {
+    const filas = await consultar(db,
+        'SELECT * FROM facturacion_ordenes WHERE id = ?', [ordenId]);
+    if (filas.length === 0) {
+        throw new OrdenError('Orden no encontrada', 404);
+    }
+
+    const orden = filas[0];
+
+    if (orden.estado !== 'facturada') {
+        throw new OrdenError(
+            `Solo se puede cargar una nota débito sobre una orden facturada; ` +
+            `esta está ${orden.estado}`,
+            409
+        );
+    }
+    if (!orden.factus_number) {
+        throw new OrdenError('La orden no tiene número de factura', 409);
+    }
+
+    if (!Array.isArray(conceptos) || conceptos.length === 0) {
+        throw new OrdenError('Indica qué se cobra en la nota débito', 400);
+    }
+
+    // Los importes que llegan son BRUTOS (lo que paga el cliente). La
+    // DIAN quiere la base gravable, igual que en la factura.
+    const items = [];
+    let subtotal = 0, impuestos = 0, total = 0;
+
+    for (const c of conceptos) {
+        const bruto = redondear(c.valor);
+        if (!(bruto > 0)) {
+            throw new OrdenError('Cada concepto necesita un valor mayor que cero', 400);
+        }
+        const neto = redondear(bruto / (1 + TASA_IVA / 100));
+        const iva = redondear(bruto - neto);
+        const cantidad = Number(c.cantidad) || 1;
+
+        items.push({
+            codigo_referencia: (c.codigo || 'ND').slice(0, 40),
+            nombre: String(c.descripcion || 'Cargo adicional').slice(0, 200),
+            cantidad,
+            precio_neto_unitario: neto,
+            tasa_impuesto: TASA_IVA,
+        });
+
+        subtotal += neto * cantidad;
+        impuestos += iva * cantidad;
+        total += bruto * cantidad;
+    }
+
+    subtotal = redondear(subtotal);
+    impuestos = redondear(impuestos);
+    total = redondear(total);
+
+    const referencia = `${orden.referencia}-ND${Date.now().toString(36).slice(-4).toUpperCase()}`;
+
+    try {
+        const nota = await facturacion.emitirNotaDebito({
+            referencia,
+            numeroFactura: orden.factus_number,
+            concepto: concepto || '4',
+            observacion: motivo || `Cargo adicional sobre la factura ${orden.factus_number}`,
+            cliente: {
+                tipo_documento: orden.cliente_tipo_documento || '13',
+                documento: orden.cliente_documento,
+                nombre: orden.cliente_nombre,
+                email: orden.cliente_email,
+            },
+            items,
+        });
+
+        await consultar(db, `
+            INSERT INTO facturacion_notas_debito
+                (orden_id, referencia, numero, cude, public_url,
+                 concepto, motivo, subtotal, impuestos, total, items, estado)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'emitida')
+        `, [
+            orden.id, referencia, nota.numero, nota.cude, nota.publicUrl,
+            concepto || '4', (motivo || '').slice(0, 500),
+            subtotal, impuestos, total, JSON.stringify(conceptos),
+        ]);
+
+        await registrarEvento(db, {
+            ordenId: orden.id, referencia: orden.referencia,
+            fuente: 'facturacion', evento: 'nota_debito_emitida',
+            resultado: 'ok',
+            mensaje: `Nota ${nota.numero} por ${total} COP sobre ${orden.factus_number}`,
+        });
+
+        console.log(`[factus-fact] Nota débito ${nota.numero} sobre ${orden.factus_number}`);
+        return { ...nota, subtotal, impuestos, total, referencia };
+    } catch (error) {
+        await consultar(db, `
+            INSERT INTO facturacion_notas_debito
+                (orden_id, referencia, concepto, motivo,
+                 subtotal, impuestos, total, items, estado, ultimo_error)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'error', ?)
+        `, [
+            orden.id, referencia, concepto || '4', (motivo || '').slice(0, 500),
+            subtotal, impuestos, total, JSON.stringify(conceptos),
+            String(error.message).slice(0, 500),
+        ]).catch(() => {});
+
+        await registrarEvento(db, {
+            ordenId: orden.id, referencia: orden.referencia,
+            fuente: 'facturacion', evento: 'nota_debito_fallida',
+            resultado: 'error', mensaje: String(error.message).slice(0, 400),
+        });
+
+        throw new OrdenError(
+            'No se pudo emitir la nota débito: ' + error.message,
+            502
+        );
+    }
+}
+
 // Registrar un evento. La clave única (fuente, referencia, evento) hace
 // que un duplicado no cree otra fila: se cuenta como intento repetido.
 async function registrarEvento(db, { ordenId, referencia, fuente, evento, resultado, mensaje, payload = null }) {
@@ -883,6 +1010,7 @@ async function registrarEvento(db, { ordenId, referencia, fuente, evento, result
 module.exports = {
     crearOrden,
     anularConNotaCredito,
+    emitirNotaDebitoDeOrden,
     enviarFacturaAlCliente,
     renovarRecaudo,
     emitirFacturaDeOrden,

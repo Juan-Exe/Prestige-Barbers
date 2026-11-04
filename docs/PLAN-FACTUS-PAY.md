@@ -6,7 +6,7 @@ factura electrónica DIAN.
 | Dato | Valor |
 |---|---|
 | Fecha | 4 de noviembre de 2026 |
-| Estado | Fase 1 completada — tablas creadas y probadas |
+| Estado | Fase 2 completada — cliente probado contra el sandbox |
 | Entorno | Sandbox |
 | Webhook | `https://prestigebarber.store/api/factus/webhook/pay` |
 
@@ -160,17 +160,44 @@ conserva.
 
 **Criterios de aceptación**
 
-- [ ] Se autentica y guarda el token
-- [ ] Una segunda llamada reutiliza el token, no pide otro
-- [ ] Ante `401` reautentica y reintenta una sola vez
-- [ ] Los errores de red no tumban el proceso
-- [ ] El token y la contraseña nunca aparecen en los logs
+- [x] Se autentica y guarda el token
+- [x] Una segunda llamada reutiliza el token, no pide otro
+- [x] Ante `401` reautentica y reintenta una sola vez
+- [x] Los errores de red no tumban el proceso
+- [x] El token y la contraseña nunca aparecen en los logs
 
-**Prueba**
+**Resultado de las pruebas** (contra el sandbox real)
 
-```bash
-node -e "require('./Backend/factus/pay-client').crearRecaudo('TEST-1', 19900)"
 ```
+crear recaudo        ready | @FC0ZDYQTCIOOT1PGYF3O | QR de 16.222 bytes
+reutilizar token     "Autenticado" aparece 1 vez en 4 llamadas
+401 simulado         "Token rechazado, reautenticando" → reintenta 1 vez
+idempotencia         yaExistia: true | "Recaudo ya existente"
+recaudo inexistente  null (404 no es excepción)
+monto 500 COP        rechazado antes de llamar a la API
+host inexistente     FactusPayError transitorio, proceso vivo
+sin credenciales     "Faltan FACTUS_PAY_EMAIL o FACTUS_PAY_PASSWORD"
+secretos en logs     ninguno (contraseña, token ni email)
+```
+
+**Extra: parseo de fechas**
+
+Factus devuelve `"04-11-2026 12:01:31 PM"` sin declarar zona horaria, y su
+tabla de campos menciona ISO 8601. `parsearFecha()` acepta ambos y trata el
+primero como hora de Colombia (UTC-5):
+
+```
+"04-11-2026 12:01:31 PM"  →  2026-11-04T17:01:31.000Z
+"2026-11-04T17:01:31Z"    →  2026-11-04T17:01:31.000Z
+"no es fecha"             →  null
+```
+
+**Un fallo encontrado al probar**
+
+Las variables de entorno se leían al cargar el módulo, así que si
+`require()` corría antes de `dotenv.config()`, el cliente se quedaba sin
+credenciales y fallaba con un confuso "fetch failed" del DNS. Ahora se leen
+en cada llamada y el mensaje dice lo que pasa.
 
 ---
 
@@ -342,7 +369,7 @@ Las credenciales no van en el repositorio. `FACTUS_PAY_ACCESS_KEY` del
 |---|---|---|
 | 0 — Reconocimiento | ✅ Completada | Sí, contra la API real |
 | 1 — Base de datos | ✅ Completada | Sí, 5/5 criterios |
-| 2 — Cliente de Pay | Pendiente | — |
+| 2 — Cliente de Pay | ✅ Completada | Sí, 5/5 criterios |
 | 3 — Endpoints | Pendiente | — |
 | 4 — Webhook | Pendiente | — |
 | 5 — Frontend | Pendiente | — |

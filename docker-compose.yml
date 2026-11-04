@@ -46,6 +46,13 @@ services:
       DB_NAME: ${DB_NAME:-barberia}
       JWT_SECRET: ${JWT_SECRET:-your_super_secret_jwt_key_change_in_production}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://192.168.1.36:3000}
+      # ---- Factus Pay (pasarela QR Bre-B) ----
+      FACTUS_PAY_BASE_URL: ${FACTUS_PAY_BASE_URL:-https://pay-api-sandbox.factus.com.co}
+      FACTUS_PAY_EMAIL: ${FACTUS_PAY_EMAIL:-}
+      FACTUS_PAY_PASSWORD: ${FACTUS_PAY_PASSWORD:-}
+      FACTUS_PAY_WEBHOOK_KEY: ${FACTUS_PAY_WEBHOOK_KEY:-}
+      FACTUS_QR_EXPIRATION_SECONDS: ${FACTUS_QR_EXPIRATION_SECONDS:-1800}
+      FACTUS_PAY_TIMEOUT_MS: ${FACTUS_PAY_TIMEOUT_MS:-10000}
     ports:
       - "${APP_PORT:-3000}:3000"
     volumes:

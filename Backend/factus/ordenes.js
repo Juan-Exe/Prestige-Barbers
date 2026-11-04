@@ -214,7 +214,16 @@ async function crearOrden(db, { usuarioId, cliente, items, reservaId = null }) {
         ]);
 
         ordenId = insercion.insertId;
-        referencia = `PB-${letraDeTipo(tipo)}-${String(ordenId).padStart(6, '0')}`;
+
+        // La referencia lleva un sufijo de tiempo además del id.
+        //
+        // Sin él, dos entornos con la misma base de datos recién creada
+        // (desarrollo y producción) generan PB-P-000001, PB-P-000002...
+        // y chocan en Factus, que responde "La referencia ya existe con
+        // un monto diferente". El sufijo las hace únicas por instalación
+        // sin perder legibilidad.
+        const sufijo = Date.now().toString(36).slice(-4).toUpperCase();
+        referencia = `PB-${letraDeTipo(tipo)}-${String(ordenId).padStart(5, '0')}-${sufijo}`;
 
         await consultar(db,
             'UPDATE facturacion_ordenes SET referencia = ? WHERE id = ?',

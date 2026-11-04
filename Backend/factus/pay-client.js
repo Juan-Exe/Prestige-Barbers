@@ -212,8 +212,11 @@ async function crearRecaudo(referencia, monto, expiracionSegundos) {
     });
 
     if (!ok) {
+        // El motivo viene en el cuerpo. Sin él, un 422 no dice nada a
+        // quien lee el log ni a quien está comprando.
+        const motivo = (cuerpo && cuerpo.message) || `código ${status}`;
         throw new FactusPayError(
-            `Factus Pay rechazo el recaudo (${status})`,
+            `Factus Pay rechazó el recaudo: ${motivo}`,
             { status, cuerpo, transitorio: status >= 500 }
         );
     }

@@ -80,10 +80,14 @@ services:
     networks:
       - prestige-network
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/auth/me', (r) => {if (r.statusCode !== 401) throw new Error(r.statusCode)})"]
+      # 127.0.0.1 y no localhost: en Node 18 localhost resuelve
+      # primero a ::1 (IPv6) y el servidor escucha en 0.0.0.0,
+      # que es solo IPv4.
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/api/auth/me',r=>process.exit(r.statusCode===401?0:1)).on('error',()=>process.exit(1))"]
       timeout: 5s
       retries: 5
       interval: 30s
+      start_period: 15s
 
   # Adminer - Herramienta web para administrar BD (opcional)
   adminer:

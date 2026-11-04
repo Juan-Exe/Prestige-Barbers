@@ -33,8 +33,12 @@ RUN mkdir -p uploads logs
 EXPOSE 3000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:3000/api/auth/me', (r) => {if (r.statusCode !== 401) throw new Error(r.statusCode)})"
+# 127.0.0.1 y no localhost: en Node 18 localhost resuelve primero a ::1
+# (IPv6) y el servidor escucha en 0.0.0.0, que es solo IPv4. El on('error')
+# hace que un fallo de red termine con codigo 1 limpio, en vez de lanzar
+# una excepcion sin capturar que ensucia el log.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD node -e "require('http').get('http://127.0.0.1:3000/api/auth/me',r=>process.exit(r.statusCode===401?0:1)).on('error',()=>process.exit(1))"
 
 # Usar dumb-init para ejecutar la aplicación
 ENTRYPOINT ["dumb-init", "--"]

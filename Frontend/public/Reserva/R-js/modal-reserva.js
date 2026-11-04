@@ -1131,8 +1131,12 @@ class ReservaModalController {
 
         this.selectedService = serviceName;
         this.selectedServiceType = itemType;
+        // El id hace falta para cobrar: la reserva guarda el nombre del
+        // servicio, pero el cobro necesita resolver su precio en el
+        // servidor por id.
+        this.selectedServiceId = itemId;
 
-        console.log('📋 Servicio cargado:', serviceName, '| Tipo:', itemType);
+        console.log('📋 Servicio cargado:', serviceName, '| Tipo:', itemType, '| id:', itemId);
     }
 
     // Actualizar precio total (servicio principal + servicio adicional)
@@ -1383,7 +1387,38 @@ class ReservaModalController {
 
         try {
             // Enviar reserva al backend
-            await this.sendReservation(reserva);
+            const resultadoReserva = await this.sendReservation(reserva);
+
+            // ---- Cobro del servicio ----
+            // La reserva ya está guardada en estado 'pendiente'. Ahora se
+            // cobra: si el cliente no paga, la reserva sigue ahí y puede
+            // pagarla después desde su perfil.
+            const items = [];
+            if (this.selectedServiceId) {
+                items.push({
+                    tipo: this.selectedServiceType === 'barba' ? 'servicio_barba' : 'servicio_corte',
+                    id: Number(this.selectedServiceId),
+                    cantidad: 1,
+                });
+            }
+            if (this.selectedAdditionalService && this.selectedAdditionalService.id) {
+                items.push({
+                    tipo: this.selectedAdditionalService.tipo === 'barba' ? 'servicio_barba' : 'servicio_corte',
+                    id: Number(this.selectedAdditionalService.id),
+                    cantidad: 1,
+                });
+            }
+
+            if (items.length > 0 && window.factusCheckout) {
+                this.closeModal();
+                const reservaId = resultadoReserva && (resultadoReserva.id || resultadoReserva.reserva_id);
+                window.factusCheckout.pagarItems(items, reservaId || null);
+                return;
+            }
+
+            // Sin checkout disponible: se confirma la reserva sin cobro,
+            // como antes. No se deja al cliente sin reserva por esto.
+            console.warn('⚠️ No se pudo abrir el cobro; la reserva queda pendiente de pago');
 
             // Construir mensaje de confirmación
             let confirmMessage = `<strong>¡Reserva confirmada exitosamente!</strong><br><br>

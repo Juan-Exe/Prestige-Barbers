@@ -403,6 +403,20 @@ async function marcarPagada(db, orden, recaudo, origen) {
          WHERE id = ? AND estado IN ('recaudo_pendiente','expirada','fallida')
     `, [pagadoEn, origen, orden.id]);
 
+    // Si la orden pagaba una reserva, esa reserva pasa a confirmada.
+    if (orden.reserva_id) {
+        try {
+            await consultar(db,
+                "UPDATE reservas SET estado = 'confirmada' WHERE id = ? AND estado = 'pendiente'",
+                [orden.reserva_id]
+            );
+            console.log(`[factus-pay] Reserva ${orden.reserva_id} confirmada por pago`);
+        } catch (error) {
+            // Que falle esto no invalida el pago: el dinero entró.
+            console.error('[factus-pay] No se pudo confirmar la reserva:', error.message);
+        }
+    }
+
     return true;
 }
 

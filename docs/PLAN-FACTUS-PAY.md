@@ -6,7 +6,7 @@ factura electrónica DIAN.
 | Dato | Valor |
 |---|---|
 | Fecha | 4 de noviembre de 2026 |
-| Estado | Fase 0 completada — credenciales verificadas contra la API real |
+| Estado | Fase 1 completada — tablas creadas y probadas |
 | Entorno | Sandbox |
 | Webhook | `https://prestigebarber.store/api/factus/webhook/pay` |
 
@@ -108,17 +108,39 @@ extremo, documentación contrastada con la API real.
 
 **Criterios de aceptación**
 
-- [ ] Las tres tablas existen en la base de datos
-- [ ] Insertar dos órdenes con la misma referencia falla
-- [ ] Insertar dos eventos con el mismo `reference_code` falla
-- [ ] El script es idempotente (`CREATE TABLE IF NOT EXISTS`)
+- [x] Las tres tablas existen en la base de datos
+- [x] Insertar dos órdenes con la misma referencia falla
+- [x] Insertar dos eventos de pago iguales falla
+- [x] Las claves foráneas funcionan (ítems en cascada, eventos conservados)
+- [x] El script es idempotente (`CREATE TABLE IF NOT EXISTS`)
 
-**Prueba**
+**Resultado de las pruebas**
 
-```sql
-SHOW TABLES LIKE 'facturacion%';
-INSERT ... -- misma referencia dos veces, debe fallar la segunda
 ```
+duplicar referencia   ERROR 1062: Duplicate entry 'PB-TEST-001'
+                      for key 'uq_facturacion_ordenes_referencia'
+
+duplicar evento pago  ERROR 1062: Duplicate entry
+                      'pay-PB-TEST-001-webhook_paid'
+                      for key 'uq_facturacion_eventos_idem'
+
+otro evento, misma referencia    entra (historial conservado)
+borrar orden → ítems             0 (cascada)
+borrar orden → eventos           2 (auditoría sobrevive)
+segunda ejecución del script     sin errores
+```
+
+**Decisión: la clave de idempotencia es compuesta**
+
+El documento `06-conciliacion-modelo-datos.md` no pone `UNIQUE` en
+`facturacion_eventos`, y el plan inicial pedía uno sobre `referencia` sola.
+Ninguna de las dos sirve: sin restricción el webhook puede procesarse dos
+veces, y con `UNIQUE(referencia)` solo cabría un evento por orden, cuando la
+tabla guarda también los de facturación y los internos.
+
+La clave es `UNIQUE (fuente, referencia, evento)`: el webhook de pago de una
+referencia solo puede registrarse una vez, y el resto del historial se
+conserva.
 
 ---
 
@@ -319,7 +341,7 @@ Las credenciales no van en el repositorio. `FACTUS_PAY_ACCESS_KEY` del
 | Fase | Estado | Probada |
 |---|---|---|
 | 0 — Reconocimiento | ✅ Completada | Sí, contra la API real |
-| 1 — Base de datos | Pendiente | — |
+| 1 — Base de datos | ✅ Completada | Sí, 5/5 criterios |
 | 2 — Cliente de Pay | Pendiente | — |
 | 3 — Endpoints | Pendiente | — |
 | 4 — Webhook | Pendiente | — |

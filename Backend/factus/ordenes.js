@@ -12,6 +12,7 @@
 
 const pay = require('./pay-client');
 const facturacion = require('./facturacion-client');
+const correo = require('./correo');
 
 // IVA general en Colombia. Los precios del catálogo ya lo incluyen,
 // así que la base gravable se obtiene dividiendo, no multiplicando.
@@ -656,28 +657,14 @@ async function emitirFacturaDeOrden(db, ordenId) {
 
         // Enviar la factura al correo del cliente.
         //
-        // En sandbox, Factus solo envía a una lista de correos
-        // autorizados: responde "El correo no esta autorizado para
-        // recibir correos en el entorno sandbox". No es un fallo de la
-        // factura, que ya está validada ante la DIAN, así que se
-        // registra y se sigue. En producción funciona sin restricción.
+        // El endpoint de envío de Factus no sirve en sandbox: solo manda
+        // a una lista blanca que no podemos editar. Pero sí nos entrega
+        // el PDF y el XML, así que el correo lo mandamos nosotros. Eso
+        // funciona igual en sandbox y en producción.
         if (orden.cliente_email && factura.numero) {
-            try {
-                await facturacion.enviarFacturaPorCorreo(factura.numero, orden.cliente_email);
-                await registrarEvento(db, {
-                    ordenId: orden.id, referencia: orden.referencia,
-                    fuente: 'facturacion', evento: 'factura_enviada_correo',
-                    resultado: 'ok', mensaje: `Enviada a ${orden.cliente_email}`,
-                });
-                console.log(`[factus-fact] Factura enviada a ${orden.cliente_email}`);
-            } catch (error) {
-                await registrarEvento(db, {
-                    ordenId: orden.id, referencia: orden.referencia,
-                    fuente: 'facturacion', evento: 'correo_no_enviado',
-                    resultado: 'error', mensaje: String(error.message).slice(0, 400),
-                });
-                console.warn('[factus-fact] No se envió el correo:', error.message);
-            }
+            enviarFacturaAlCliente(db, orden, factura).catch((e) =>
+                console.error('[correo] Error inesperado:', e.message)
+            );
         }
 
         return factura;
@@ -695,6 +682,82 @@ async function emitirFacturaDeOrden(db, ordenId) {
 
         console.error(`[factus-fact] Falló la factura de ${orden.referencia}:`, error.message);
         return { error: error.message };
+    }
+}
+
+// ---------------------------------------------------------------------
+//  Enviar la factura al cliente
+//
+//  Descarga el PDF y el XML de Factus y los manda adjuntos. No se
+//  espera a que termine: el pago ya está confirmado y la factura
+//  emitida; que el correo tarde no debe retener nada.
+// ---------------------------------------------------------------------
+async function enviarFacturaAlCliente(db, orden, factura) {
+    if (!correo.hayCredenciales()) {
+        await registrarEvento(db, {
+            ordenId: orden.id, referencia: orden.referencia,
+            fuente: 'facturacion', evento: 'correo_no_enviado',
+            resultado: 'error',
+            mensaje: 'Faltan SMTP_USER y SMTP_PASS en el entorno',
+        });
+        console.warn('[correo] Sin credenciales SMTP; no se envió la factura');
+        return;
+    }
+
+    try {
+        const adjuntos = [];
+
+        // El PDF y el XML por separado: si uno falla, el otro va igual.
+        try {
+            const pdf = await facturacion.descargarDocumento(factura.numero, 'pdf');
+            adjuntos.push({
+                nombre: pdf.nombre.endsWith('.pdf') ? pdf.nombre : pdf.nombre + '.pdf',
+                tipo: 'application/pdf',
+                contenido: pdf.contenido,
+            });
+        } catch (e) {
+            console.warn('[correo] No se pudo descargar el PDF:', e.message);
+        }
+
+        try {
+            const xml = await facturacion.descargarDocumento(factura.numero, 'xml');
+            adjuntos.push({
+                nombre: xml.nombre.endsWith('.xml') ? xml.nombre : xml.nombre + '.xml',
+                tipo: 'application/xml',
+                contenido: xml.contenido,
+            });
+        } catch (e) {
+            console.warn('[correo] No se pudo descargar el XML:', e.message);
+        }
+
+        if (adjuntos.length === 0) {
+            throw new Error('No se pudo descargar ni el PDF ni el XML');
+        }
+
+        await correo.enviarFactura({
+            para: orden.cliente_email,
+            nombreCliente: orden.cliente_nombre,
+            numero: factura.numero,
+            total: orden.total,
+            referencia: orden.referencia,
+            adjuntos,
+        });
+
+        await registrarEvento(db, {
+            ordenId: orden.id, referencia: orden.referencia,
+            fuente: 'facturacion', evento: 'factura_enviada_correo',
+            resultado: 'ok',
+            mensaje: `Enviada a ${orden.cliente_email} con ${adjuntos.length} adjuntos`,
+        });
+
+        console.log(`[correo] Factura ${factura.numero} enviada a ${orden.cliente_email}`);
+    } catch (error) {
+        await registrarEvento(db, {
+            ordenId: orden.id, referencia: orden.referencia,
+            fuente: 'facturacion', evento: 'correo_no_enviado',
+            resultado: 'error', mensaje: String(error.message).slice(0, 400),
+        });
+        console.warn('[correo] No se envió la factura:', error.message);
     }
 }
 
@@ -722,6 +785,7 @@ async function registrarEvento(db, { ordenId, referencia, fuente, evento, result
 
 module.exports = {
     crearOrden,
+    enviarFacturaAlCliente,
     renovarRecaudo,
     emitirFacturaDeOrden,
     consultarOrden,

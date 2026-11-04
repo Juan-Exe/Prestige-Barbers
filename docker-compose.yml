@@ -62,6 +62,12 @@ services:
       FACTUS_PASSWORD: ${FACTUS_PASSWORD:-}
       FACTUS_NUMBERING_RANGE_ID: ${FACTUS_NUMBERING_RANGE_ID:-}
       FACTUS_DEFAULT_MUNICIPALITY_CODE: ${FACTUS_DEFAULT_MUNICIPALITY_CODE:-}
+      # ---- Correo (envio de facturas) ----
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Prestige Barbers}
     ports:
       - "${APP_PORT:-3000}:3000"
     volumes:

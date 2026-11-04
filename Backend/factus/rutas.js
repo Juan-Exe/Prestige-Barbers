@@ -346,8 +346,13 @@ function construirRutas({ db, verificarToken }) {
                     return res.status(400).json({ success: false, message: 'Falta el correo' });
                 }
 
-                const facturacion = require('./facturacion-client');
-                await facturacion.enviarFacturaPorCorreo(orden.factus_number, destino);
+                // Por nuestra propia vía: el endpoint de Factus solo
+                // manda a su lista blanca del sandbox.
+                await ordenes.enviarFacturaAlCliente(
+                    db,
+                    { ...orden, cliente_email: destino },
+                    { numero: orden.factus_number }
+                );
 
                 return res.json({
                     success: true,

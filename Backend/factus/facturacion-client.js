@@ -368,9 +368,43 @@ function _limpiarCache() {
     rangoEnCache = null;
 }
 
+
+// ---------------------------------------------------------------------
+//  Descargar el PDF y el XML de una factura validada
+//
+//  Factus los entrega en base64. Son los dos documentos que la DIAN
+//  exige entregar al comprador: el XML UBL 2.1 firmado es la factura
+//  legal, el PDF es su representación gráfica.
+// ---------------------------------------------------------------------
+async function descargarDocumento(numero, tipo) {
+    const ruta = tipo === 'xml' ? 'download-xml' : 'download-pdf';
+    const { status, ok, cuerpo } = await peticionAutenticada(
+        `/v2/bills/${encodeURIComponent(numero)}/${ruta}`
+    );
+
+    if (!ok) {
+        throw new FacturacionError(
+            `No se pudo descargar el ${tipo.toUpperCase()} (${status})`,
+            { status, cuerpo, transitorio: status >= 500 }
+        );
+    }
+
+    const datos = (cuerpo && cuerpo.data) || {};
+    const b64 = tipo === 'xml' ? datos.xml_base_64_encoded : datos.pdf_base_64_encoded;
+    if (!b64) {
+        throw new FacturacionError(`Factus no devolvió el ${tipo.toUpperCase()}`);
+    }
+
+    return {
+        nombre: datos.file_name || `${numero}.${tipo}`,
+        contenido: Buffer.from(b64, 'base64'),
+    };
+}
+
 module.exports = {
     emitirFactura,
     enviarFacturaPorCorreo,
+    descargarDocumento,
     consultarFactura,
     obtenerRangoNumeracion,
     FacturacionError,

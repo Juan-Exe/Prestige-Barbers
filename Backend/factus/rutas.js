@@ -271,8 +271,11 @@ function construirRutas({ db, verificarToken }) {
         try {
             const filas = await new Promise((resolve, reject) => {
                 db.query(`
-                    SELECT id, referencia, tipo, estado, total, reserva_id,
+                    SELECT id, referencia, tipo, estado, total, subtotal, impuestos,
+                           reserva_id, cliente_nombre, cliente_documento,
+                           cliente_tipo_documento,
                            factus_number, factus_cufe, factus_public_url,
+                           factus_qr_url, factus_resolucion,
                            factus_validated_at, pay_paid_at, created_at
                       FROM facturacion_ordenes
                      WHERE usuario_id = ?
@@ -313,15 +316,27 @@ function construirRutas({ db, verificarToken }) {
                     tipo: o.tipo,
                     estado: o.estado,
                     total: Number(o.total).toFixed(2),
+                    subtotal: Number(o.subtotal).toFixed(2),
+                    impuestos: Number(o.impuestos).toFixed(2),
                     reserva_id: o.reserva_id,
                     creada_en: o.created_at,
                     pagada_en: o.pay_paid_at,
                     items: porOrden[o.id] || [],
+                    // Lo que exige el Art. 617 para la representación
+                    // gráfica: número, CUFE, resolución, QR de la DIAN
+                    // y el desglose del impuesto.
                     factura: o.factus_number ? {
                         numero: o.factus_number,
                         cufe: o.factus_cufe,
                         public_url: o.factus_public_url,
+                        qr_url: o.factus_qr_url,
+                        resolucion: o.factus_resolucion,
                         validada_en: o.factus_validated_at,
+                        comprador: {
+                            nombre: o.cliente_nombre,
+                            documento: o.cliente_documento,
+                            tipo_documento: o.cliente_tipo_documento,
+                        },
                     } : null,
                 })),
             });

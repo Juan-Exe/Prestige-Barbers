@@ -236,13 +236,67 @@ async function emitirFactura({ referencia, cliente, items, total, observacion })
     const datos = (cuerpo && cuerpo.data) || {};
     const bill = datos.bill || datos;
 
+    const factura = extraerFactura(bill, cuerpo && cuerpo.message);
+
+    // La respuesta de validate no siempre trae links ni la resolución.
+    // Si falta el QR, se consulta la factura ya emitida, que sí los da.
+    if (factura.numero && !factura.qrUrl) {
+        try {
+            const completa = await consultarFactura(factura.numero);
+            if (completa) {
+                const extra = extraerFactura(completa, factura.mensaje);
+                return { ...factura, ...extra, mensaje: factura.mensaje };
+            }
+        } catch (error) {
+            // Que falle esto no invalida la factura, que ya está emitida.
+            console.warn('[factus-fact] No se pudieron completar los datos:', error.message);
+        }
+    }
+
+    return factura;
+}
+
+// ---------------------------------------------------------------------
+//  Extraer los datos de una factura
+//
+//  La DIAN exige en la representación gráfica bastante más que el
+//  número: la resolución de numeración, el QR de consulta, el desglose
+//  de impuestos y los datos del emisor y del comprador.
+//
+//  El QR y la URL pública vienen dentro de `links`, no en la raíz: ese
+//  detalle hacía que se guardaran como null.
+// ---------------------------------------------------------------------
+function extraerFactura(bill, mensaje) {
+    const links = bill.links || {};
+    const rango = bill.numbering_range || {};
+    const totales = bill.totales || bill.totals || {};
+
+    const resolucion = rango.resolution_number
+        ? `${rango.resolution_number} (${rango.prefix || ''} ${rango.from || ''}-${rango.to || ''})`.trim()
+        : null;
+
     return {
         numero: bill.number || bill.name || null,
         cufe: bill.cufe || null,
-        publicUrl: bill.public_url || null,
-        qr: bill.qr || null,
-        validadaEn: bill.validated || bill.created_at || null,
-        mensaje: cuerpo && cuerpo.message,
+        // El QR de la DIAN: con él se verifica la factura en su catálogo.
+        qrUrl: links.qr || bill.qr || null,
+        publicUrl: links.public_url || bill.public_url || null,
+        resolucion,
+        validadaEn: bill.validated_at || bill.validated || bill.created_at || null,
+        esValidada: bill.is_validated === true || bill.is_validated === 'true',
+        // Totales con el desglose que pide el Art. 617
+        totales: {
+            base: totales.taxable_amount || totales.gross_amount || null,
+            impuestos: totales.tax_amount || null,
+            total: totales.total || null,
+        },
+        impuestos: bill.taxes || [],
+        emisor: bill.company || null,
+        comprador: bill.customer || null,
+        items: bill.items || [],
+        // La respuesta completa, para no perder nada de lo validado.
+        crudo: bill,
+        mensaje,
     };
 }
 

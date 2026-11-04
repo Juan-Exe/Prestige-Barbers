@@ -937,16 +937,45 @@
 
             let factura = '';
             if (o.factura && o.factura.numero) {
+                const f = o.factura;
+                // Lo que exige el Art. 617 en la representacion grafica:
+                // numero con su resolucion, CUFE completo, QR de consulta
+                // en la DIAN y desglose del IVA.
                 factura =
                     '<div class="compra-factura">' +
-                    '<span class="compra-factura-etiqueta">Factura electrónica DIAN</span>' +
-                    '<strong class="compra-factura-numero">' + escaparTexto(o.factura.numero) + '</strong>' +
-                    (o.factura.cufe
-                        ? '<span class="compra-cufe">CUFE: ' + escaparTexto(String(o.factura.cufe).slice(0, 30)) + '...</span>'
+                    '<div class="factura-cabecera">' +
+                    '<span class="compra-factura-etiqueta">Factura electrónica de venta</span>' +
+                    '<strong class="compra-factura-numero">' + escaparTexto(f.numero) + '</strong>' +
+                    (f.resolucion
+                        ? '<span class="factura-resolucion">Resolución DIAN ' + escaparTexto(f.resolucion) + '</span>'
                         : '') +
-                    (o.factura.public_url
-                        ? '<a href="' + escaparTexto(o.factura.public_url) + '" target="_blank" rel="noopener" class="compra-ver-factura">Ver factura</a>'
+                    '</div>' +
+
+                    '<dl class="factura-datos">' +
+                    (f.comprador && f.comprador.documento
+                        ? '<dt>Adquiriente</dt><dd>' + escaparTexto(f.comprador.nombre) +
+                          ' &middot; CC ' + escaparTexto(f.comprador.documento) + '</dd>'
                         : '') +
+                    '<dt>Base gravable</dt><dd>$' + pesos(o.subtotal) + '</dd>' +
+                    '<dt>IVA 19%</dt><dd>$' + pesos(o.impuestos) + '</dd>' +
+                    '<dt>Total</dt><dd><strong>$' + pesos(o.total) + '</strong></dd>' +
+                    '</dl>' +
+
+                    (f.cufe
+                        ? '<div class="factura-cufe-bloque">' +
+                          '<span class="compra-factura-etiqueta">CUFE</span>' +
+                          '<code class="factura-cufe">' + escaparTexto(f.cufe) + '</code>' +
+                          '</div>'
+                        : '') +
+
+                    '<div class="factura-acciones">' +
+                    (f.qr_url
+                        ? '<a href="' + escaparTexto(f.qr_url) + '" target="_blank" rel="noopener" class="factura-btn">Verificar en la DIAN</a>'
+                        : '') +
+                    (f.public_url
+                        ? '<a href="' + escaparTexto(f.public_url) + '" target="_blank" rel="noopener" class="factura-btn factura-btn-secundario">Ver factura</a>'
+                        : '') +
+                    '</div>' +
                     '</div>';
             } else if (o.estado === 'pagada' || o.estado === 'error_factura') {
                 factura = '<div class="compra-factura compra-factura-espera">La factura se está emitiendo...</div>';

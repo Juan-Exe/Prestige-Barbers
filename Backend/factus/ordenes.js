@@ -500,10 +500,18 @@ async function emitirFacturaDeOrden(db, ordenId) {
             UPDATE facturacion_ordenes
                SET estado = 'facturada',
                    factus_number = ?, factus_cufe = ?,
-                   factus_public_url = ?, factus_validated_at = NOW(),
+                   factus_public_url = ?, factus_qr_url = ?,
+                   factus_resolucion = ?, factus_datos = ?,
+                   factus_validated_at = NOW(),
                    ultimo_error = NULL
              WHERE id = ?
-        `, [factura.numero, factura.cufe, factura.publicUrl, orden.id]);
+        `, [
+            factura.numero, factura.cufe,
+            factura.publicUrl, factura.qrUrl,
+            factura.resolucion,
+            factura.crudo ? JSON.stringify(factura.crudo) : null,
+            orden.id,
+        ]);
 
         await registrarEvento(db, {
             ordenId: orden.id, referencia: orden.referencia,

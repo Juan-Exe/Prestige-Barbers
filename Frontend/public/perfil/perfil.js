@@ -234,10 +234,31 @@ async function cargarMisReservas(forzar = false) {
     }
 
     // Algunas respuestas antiguas guardaban el usuario anidado en .user
-    const userId = usuario?.id ?? usuario?.user?.id;
+    let userId = usuario?.id ?? usuario?.user?.id;
+
+    // Si lo que hay guardado no trae id (sesion creada por una version
+    // anterior), se pide al servidor en vez de darse por vencido.
+    if (!userId) {
+        console.warn('[RESERVAS] user_data sin id, consultando /api/auth/me');
+        try {
+            const me = await fetch('/api/auth/me', {
+                headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+            });
+            if (me.ok) {
+                const info = await me.json();
+                if (info?.user?.id) {
+                    userId = info.user.id;
+                    localStorage.setItem('user_data', JSON.stringify(info.user));
+                    console.log('[RESERVAS] id recuperado del servidor:', userId);
+                }
+            }
+        } catch (e) {
+            console.error('[RESERVAS] No se pudo recuperar el id:', e);
+        }
+    }
 
     if (!userId) {
-        console.error('[RESERVAS] El usuario guardado no tiene id:', usuario);
+        console.error('[RESERVAS] Sin id de usuario; no se pueden pedir las reservas');
         mostrarReservasVacias(contenedor, vacio);
         return;
     }

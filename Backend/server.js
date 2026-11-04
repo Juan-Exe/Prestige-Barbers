@@ -173,9 +173,15 @@ app.use(express.static(path.join(__dirname, '..', 'Frontend', 'public'), {
         if (filePath.endsWith('.html')) {
             res.setHeader('Cache-Control', 'no-cache');
         } else if (/\.(jpg|jpeg|png|webp|gif|svg|ico|woff2?)$/i.test(filePath)) {
+            // Las imagenes no cambian de nombre, se pueden cachear tiempo
             res.setHeader('Cache-Control', 'public, max-age=604800'); // 7 dias
+        } else if (/\.(js|css)$/i.test(filePath)) {
+            // JS y CSS no llevan hash en el nombre: si se cachean, un deploy
+            // deja al navegador con la version vieja. Se revalida siempre
+            // (con ETag la respuesta suele ser un 304 barato).
+            res.setHeader('Cache-Control', 'no-cache');
         } else {
-            res.setHeader('Cache-Control', 'public, max-age=3600'); // 1 hora
+            res.setHeader('Cache-Control', 'public, max-age=3600');
         }
     }
 }));

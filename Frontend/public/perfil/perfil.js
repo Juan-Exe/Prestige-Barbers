@@ -12,6 +12,16 @@ document.addEventListener('DOMContentLoaded', () => {
     inicializarTabs();
     inicializarEdicion();
     mostrarBadgeEnHeader(); // Mostrar badge en el header
+
+    // Precargar las reservas sin esperar al clic en la pestana: si la pestana
+    // ya viene activa (o el usuario llega con #reservas) el contenido ya esta.
+    cargarMisReservas();
+
+    // Permitir enlazar directamente a la pestana con /perfil/#reservas
+    if (window.location.hash === '#reservas') {
+        const btnReservas = document.querySelector('.tab-btn[data-tab="reservas"]');
+        if (btnReservas) btnReservas.click();
+    }
 });
 
 // ==================== VERIFICAR QUE EL USUARIO ESTÉ AUTENTICADO ====================
@@ -188,6 +198,14 @@ function inicializarTabs() {
 // ==================== MIS RESERVAS ====================
 let reservasYaCargadas = false;
 
+function mostrarReservasVacias(contenedor, vacio) {
+    if (contenedor) {
+        contenedor.style.display = 'none';
+        contenedor.innerHTML = '';
+    }
+    if (vacio) vacio.style.display = 'block';
+}
+
 async function cargarMisReservas(forzar = false) {
     if (reservasYaCargadas && !forzar) return;
 
@@ -197,22 +215,39 @@ async function cargarMisReservas(forzar = false) {
 
     const token = localStorage.getItem('auth_token');
     const userData = localStorage.getItem('user_data');
-    if (!token || !userData) return;
+
+    if (!token || !userData) {
+        console.warn('[RESERVAS] No hay sesion activa (falta auth_token o user_data)');
+        mostrarReservasVacias(contenedor, vacio);
+        return;
+    }
 
     let usuario;
     try {
         usuario = JSON.parse(userData);
     } catch (e) {
+        console.error('[RESERVAS] user_data corrupto en localStorage:', e);
+        mostrarReservasVacias(contenedor, vacio);
         return;
     }
-    if (!usuario || !usuario.id) return;
+
+    // Algunas respuestas antiguas guardaban el usuario anidado en .user
+    const userId = usuario?.id ?? usuario?.user?.id;
+
+    if (!userId) {
+        console.error('[RESERVAS] El usuario guardado no tiene id:', usuario);
+        mostrarReservasVacias(contenedor, vacio);
+        return;
+    }
+
+    console.log('[RESERVAS] Cargando reservas del usuario', userId);
 
     contenedor.style.display = 'block';
     contenedor.innerHTML = '<p class="reservas-cargando">Cargando tus reservas...</p>';
     if (vacio) vacio.style.display = 'none';
 
     try {
-        const resp = await fetch(`/api/reservas/usuario/${usuario.id}`, {
+        const resp = await fetch(`/api/reservas/usuario/${userId}`, {
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Accept': 'application/json'
@@ -224,12 +259,11 @@ async function cargarMisReservas(forzar = false) {
         const data = await resp.json();
         const reservas = (data && data.reservas) ? data.reservas : [];
 
+        console.log('[RESERVAS] Recibidas', reservas.length, 'reservas');
         reservasYaCargadas = true;
 
         if (reservas.length === 0) {
-            contenedor.style.display = 'none';
-            contenedor.innerHTML = '';
-            if (vacio) vacio.style.display = 'block';
+            mostrarReservasVacias(contenedor, vacio);
             return;
         }
 

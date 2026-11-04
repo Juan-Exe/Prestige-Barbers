@@ -173,6 +173,24 @@ async function obtenerRangoNumeracion() {
 async function emitirFactura({ referencia, cliente, items, total, observacion }) {
     const rango = await obtenerRangoNumeracion();
 
+    // El total del pago debe coincidir EXACTAMENTE con el que calcula
+    // Factus a partir de las bases y las tasas. Enviar el precio de
+    // catálogo redondeado provoca un 422 por diferencias de un centavo:
+    //
+    //   "La suma de todos los detalles de pago no es igual al total de
+    //    la factura. Esperado: 46,899.99 - Enviado: 46,900.00"
+    //
+    // Así que el total se recalcula aquí con el mismo criterio: base
+    // por cantidad, más su impuesto, truncando a dos decimales como
+    // hace Factus.
+    const totalCalculado = items.reduce((suma, i) => {
+        const base = Number(i.precio_neto_unitario) * Number(i.cantidad);
+        const impuesto = base * (Number(i.tasa_impuesto) / 100);
+        return suma + base + impuesto;
+    }, 0);
+
+    const totalParaPago = (Math.floor(totalCalculado * 100) / 100).toFixed(2);
+
     const cuerpoFactura = {
         reference_code: referencia,
         document: '01',          // factura de venta
@@ -185,7 +203,7 @@ async function emitirFactura({ referencia, cliente, items, total, observacion })
             payment_form: '1',          // contado
             payment_method_code: '47',  // transferencia (Bre-B)
             reference_code: referencia,
-            amount: Number(total).toFixed(2),
+            amount: totalParaPago,
         }],
 
         customer: {

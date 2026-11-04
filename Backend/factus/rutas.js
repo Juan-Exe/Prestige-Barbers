@@ -206,6 +206,57 @@ function construirRutas({ db, verificarToken }) {
     );
 
     // -----------------------------------------------------------------
+    //  POST /api/factus/ordenes/:referencia/reintentar-factura
+    //
+    //  Para órdenes en error_factura: el pago entró pero la factura
+    //  falló. No vuelve a cobrar.
+    // -----------------------------------------------------------------
+    router.post('/ordenes/:referencia/reintentar-factura',
+        verificarToken,
+        param('referencia').isLength({ min: 3, max: 100 }).matches(/^[A-Z0-9-]+$/i),
+
+        async (req, res) => {
+            if (errores(req, res)) return;
+
+            try {
+                const filas = await new Promise((resolve, reject) => {
+                    db.query(
+                        'SELECT id, usuario_id, estado FROM facturacion_ordenes WHERE referencia = ?',
+                        [req.params.referencia],
+                        (err, r) => (err ? reject(err) : resolve(r))
+                    );
+                });
+
+                if (filas.length === 0) {
+                    return res.status(404).json({ success: false, message: 'Orden no encontrada' });
+                }
+
+                const orden = filas[0];
+                if (orden.usuario_id !== req.userId) {
+                    return res.status(403).json({ success: false, message: 'No es tu orden' });
+                }
+
+                const resultado = await ordenes.emitirFacturaDeOrden(db, orden.id);
+
+                if (resultado && resultado.numero) {
+                    return res.json({
+                        success: true,
+                        message: `Factura ${resultado.numero} emitida`,
+                        factura: resultado,
+                    });
+                }
+
+                return res.status(502).json({
+                    success: false,
+                    message: (resultado && resultado.error) || 'No se pudo emitir la factura',
+                });
+            } catch (error) {
+                return responderError(res, error, 'reintentar factura');
+            }
+        }
+    );
+
+    // -----------------------------------------------------------------
     //  POST /api/factus/ordenes/:referencia/reenviar-factura
     //
     //  Para cuando el envío automático falló: en sandbox, porque el

@@ -893,7 +893,10 @@ footer p {
 /* El encabezado de cada compra: la referencia es larga y el estado no
    siempre cabe al lado. */
 .compra-referencia {
-    flex: 1 1 200px;
+    /* Sin flex-grow: con él la referencia ocupaba todo el ancho y
+       empujaba el estado a una línea aparte, dejando un hueco enorme
+       en la cabecera. */
+    flex: 0 1 auto;
     min-width: 0;
     word-break: break-all;
     text-align: left;

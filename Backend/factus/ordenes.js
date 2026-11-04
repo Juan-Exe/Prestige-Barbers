@@ -589,6 +589,7 @@ async function registrarEvento(db, { ordenId, referencia, fuente, evento, result
 
 module.exports = {
     crearOrden,
+    emitirFacturaDeOrden,
     consultarOrden,
     marcarPagada,
     registrarEvento,

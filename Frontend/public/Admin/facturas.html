@@ -140,6 +140,16 @@
             color: #1B1B1B;
         }
 
+        /* La nota vive en su propia página de Factus, no dentro de la
+           factura: por eso cada una enlaza a su documento. */
+        .notas-lista a {
+            color: #1B1B1B;
+            text-decoration: underline;
+            font-weight: 600;
+        }
+
+        .notas-lista a:hover { color: #d32f2f; }
+
         .sin-notas {
             color: #999;
             font-size: 0.8rem;
@@ -365,7 +375,7 @@
                 </div>
 
                 <div class="form-group">
-                    <label>Conceptos a cobrar *</label>
+                    <label for="debito-conceptos">Conceptos a cobrar *</label>
                     <div id="debito-conceptos"></div>
                     <button type="button" class="btn-mini" id="debito-agregar">+ Añadir concepto</button>
                     <div class="total-conceptos">Total: <span id="debito-total">$0</span></div>
@@ -498,12 +508,20 @@
             const debitos = o.notas_debito || [];
 
             // Las notas ya emitidas sobre esta factura.
+            // Cada nota enlaza a su propio documento en Factus: la nota
+            // vive en una página aparte, no dentro de la factura.
+            const enlaceNota = (texto, url) => url
+                ? `<a href="${escapar(url)}" target="_blank" rel="noopener">${texto}</a>`
+                : texto;
+
             let notas = '';
             if (o.nota_credito && o.nota_credito.numero) {
-                notas += `<li><span class="tipo">NC</span> ${escapar(o.nota_credito.numero)}</li>`;
+                notas += `<li><span class="tipo">NC</span> ` +
+                    enlaceNota(escapar(o.nota_credito.numero), o.nota_credito.public_url) + `</li>`;
             }
             debitos.forEach((n) => {
-                notas += `<li><span class="tipo">ND</span> ${escapar(n.numero)} · ${dinero(n.total)}</li>`;
+                notas += `<li><span class="tipo">ND</span> ` +
+                    enlaceNota(escapar(n.numero), n.public_url) + ` · ${dinero(n.total)}</li>`;
             });
             if (!notas) notas = '<span class="sin-notas">Sin notas</span>';
             else notas = `<ul class="notas-lista">${notas}</ul>`;
@@ -545,9 +563,17 @@
     // ---------------------------------------------------------------
     let refActual = null;
 
-    function abrir(id) { document.getElementById(id).classList.remove('hidden'); }
+    // .active y no .hidden: en admin-styles.css el overlay ya nace con
+    // display:none y solo se muestra con .show o .active. Quitarle
+    // .hidden no lo hace visible, que era por lo que el botón no abría
+    // nada. Es el mismo mecanismo que usa productos.js.
+    function abrir(id) {
+        const m = document.getElementById(id);
+        m.classList.remove('hidden');
+        m.classList.add('active');
+    }
     function cerrar(id) {
-        document.getElementById(id).classList.add('hidden');
+        document.getElementById(id).classList.remove('active');
         document.getElementById('credito-resultado').innerHTML = '';
         document.getElementById('debito-resultado').innerHTML = '';
     }

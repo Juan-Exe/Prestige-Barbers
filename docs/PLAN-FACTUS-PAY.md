@@ -6,7 +6,7 @@ factura electrónica DIAN.
 | Dato | Valor |
 |---|---|
 | Fecha | 4 de noviembre de 2026 |
-| Estado | Fases 1 a 5 completadas — la pasarela cobra de verdad |
+| Estado | Las 6 fases completadas — cobra y factura ante la DIAN |
 | Entorno | Sandbox |
 | Webhook | `https://prestigebarber.store/api/factus/webhook/pay` |
 
@@ -373,13 +373,62 @@ confirmarse el pago la pantalla cambia sola, sin recargar.
 
 ---
 
-### Fase 6 — Factura electrónica DIAN
+### Fase 6 — Factura electrónica DIAN ✅
 
-> **Fuera del alcance de esta tanda.** Se documenta para la siguiente.
+**Historia de usuario**
 
-Requiere datos que hoy no existen en la base: `documento` y `tipo_documento`
-del usuario, y el código de municipio. Sin ellos hay que facturar como
-consumidor final (`22222222222`).
+> Como cliente, quiero recibir mi factura electrónica válida ante la DIAN en
+> cuanto pago, sin tener que pedirla.
+
+**Criterios de aceptación**
+
+- [x] El checkout pide la cédula la primera vez y la guarda
+- [x] Un documento mal formado se rechaza
+- [x] Al confirmarse el pago, la factura se emite sola
+- [x] La factura trae número y CUFE validados por la DIAN
+- [x] Si la factura falla, el pago no se pierde (`error_factura`)
+- [x] Funciona en producción
+
+**Resultado de las pruebas**
+
+```
+autenticación OAuth      200, token de 3600 s
+rango de numeración      389 "Factura de Venta"
+sin documento            400 requiere_documento: true
+documento "abc-123"      400 "debe tener entre 5 y 15 dígitos"
+orden con documento      201 | PB-R-000010
+pago confirmado          → factura SETP990033390
+CUFE                     1f1212c785a285ad2251d36147b7fd2da2381591a1...
+estado final             facturada
+
+EN PRODUCCIÓN (HTTPS):
+sin documento            requiere_documento: true
+con documento            201 | PB-R-000004 | QR de 16.762 bytes
+```
+
+**Un error que costó encontrar**
+
+La API devolvió `422 Error de validación` sin más detalle hasta inspeccionar
+el cuerpo completo:
+
+```json
+"items.0.unit_measure_code": ["El campo código unidad de medida es obligatorio."],
+"items.0.standard_code":     ["El campo código estándar es obligatorio."]
+```
+
+La documentación interna indicaba `unit_measure_id: 70` y `standard_code_id: 1`
+(numéricos). La API v2 real pide `unit_measure_code: "94"` y
+`standard_code: "999"` como **cadenas**.
+
+**Decisiones**
+
+- **La factura se emite sin esperar** (`setImmediate`): el webhook debe
+  responder en milisegundos y facturar tarda segundos.
+- **Si la factura falla, el pago no se toca.** La orden pasa a
+  `error_factura` y se puede reintentar sin volver a cobrar.
+- **La cédula se pide una vez** y se guarda en el perfil.
+- **Token distinto al de Pay**: este expira en una hora y se renueva solo,
+  un minuto antes de caducar.
 
 ---
 
@@ -437,4 +486,4 @@ Las credenciales no van en el repositorio. `FACTUS_PAY_ACCESS_KEY` del
 | 3 — Endpoints | ✅ Completada | Sí, 6/6 criterios |
 | 4 — Webhook | ✅ Completada | Sí, 5/5 automatizados |
 | 5 — Frontend | ✅ Completada | Sí, 6/6 criterios |
-| 6 — Factura DIAN | Fuera de alcance | — |
+| 6 — Factura DIAN | ✅ Completada | Sí, 6/6 criterios |

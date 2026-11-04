@@ -1,711 +1,363 @@
-# Prestige Barbers
+<div align="center">
+  <img src="docs/docs_images/penta-sys-logo.png" alt="Penta{sys}4.0" width="110">
 
-Plataforma digital integral para barbería que revoluciona la experiencia del cliente mediante portafolios dinámicos, sistema de reservas personalizado y comercio electrónico de productos capilares.
+  # Prestige Barbers
 
-**Inicio Rápido:** Lee [QUICK-START.md](docs/QUICK-START.md) para poner la aplicación en funcionamiento en 3 minutos con Docker.
+  **Plataforma de barbería con cobro por QR Bre-B y facturación electrónica DIAN**
 
-## Descripción General
+  Equipo **Penta{sys}4.0** · Hackathon **API Wars**
 
-**Prestige Barbers** es una solución completa diseñada para optimizar la gestión operativa de barberías modernas. El sistema permite a los clientes explorar portafolios profesionales de barberos, reservar turnos con profesionales específicos y adquirir productos capilares exclusivos, eliminando tiempos de espera innecesarios y mejorando significativamente la experiencia del usuario.
+  [![Node.js](https://img.shields.io/badge/Node.js-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
+  [![Express 5](https://img.shields.io/badge/Express_5-000000?style=flat-square&logo=express&logoColor=white)](https://expressjs.com)
+  [![MariaDB](https://img.shields.io/badge/MariaDB-003545?style=flat-square&logo=mariadb&logoColor=white)](https://mariadb.org)
+  [![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docker.com)
+  [![Factus](https://img.shields.io/badge/Factus_API-FF6B00?style=flat-square)](https://developers.factus.com.co)
+
+  [En producción: prestigebarber.store](https://prestigebarber.store)
+</div>
 
 ---
 
-## Equipo de Desarrollo
+## Qué es
 
-| Nombre | Rol |
-|--------|-----|
-| **Juan Diego Arrieta Herrera** | Desarrollador Full Stack |
-| **Valentina Ojeda Pascasión** | Desarrolladora Full Stack |
+Prestige Barbers nació como una plataforma de reservas y tienda para barberías. Para API Wars le integramos el ciclo de cobro y facturación completo de Colombia:
+
+- El cliente reserva un corte o compra productos.
+- Paga escaneando un **QR Bre-B** generado por **Factus Pay**.
+- Al confirmarse el pago, el backend emite la **factura electrónica** ante la **DIAN** vía **Factus Facturación**, la descarga en PDF y XML, y la envía al correo del cliente.
+- Si hay que corregir, se emite una **nota crédito**; si hay que cobrar algo adicional, una **nota débito**.
+
+Nada de esto es un simulacro: las facturas se validan contra el entorno sandbox real de la DIAN y traen su CUFE.
+
+> **Inicio rápido:** [docs/QUICK-START.md](docs/QUICK-START.md) levanta todo con Docker en 3 minutos.
 
 ---
 
-## Stack Tecnológico
+## Equipo
 
-### Backend
-![Node.js Badge](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white)
-![Express Badge](https://img.shields.io/badge/Express-000000?style=for-the-badge&logo=express&logoColor=white)
-![MySQL Badge](https://img.shields.io/badge/MySQL-4479A1?style=for-the-badge&logo=mysql&logoColor=white)
-![JWT Badge](https://img.shields.io/badge/JWT-000000?style=for-the-badge&logo=json-web-tokens&logoColor=white)
+| Nombre | |
+|---|---|
+| Juan Diego Arrieta Herrera | Penta{sys}4.0 |
+| Juan Diego Díaz | Penta{sys}4.0 |
+| Kevin Ayazo | Penta{sys}4.0 |
+| Yerson Ochoa | Penta{sys}4.0 |
+| Sebastián López | Penta{sys}4.0 |
 
-### Frontend
-![HTML5 Badge](https://img.shields.io/badge/HTML5-E34C26?style=for-the-badge&logo=html5&logoColor=white)
-![CSS3 Badge](https://img.shields.io/badge/CSS3-1572B6?style=for-the-badge&logo=css3&logoColor=white)
-![JavaScript Badge](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)
+Base del proyecto previo a la hackathon: Juan Diego Arrieta Herrera y Valentina Ojeda Pascasión.
 
-### DevOps & Contenedorización
-![Docker Badge](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
-![Docker Compose Badge](https://img.shields.io/badge/Docker%20Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)
-![GitHub Badge](https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white)
+---
+
+## El flujo de pago y facturación
+
+```
+Cliente                Backend                 Factus Pay            Factus Facturación / DIAN
+  │                       │                         │                          │
+  ├─ POST /ordenes ──────►│                         │                          │
+  │                       ├─ precios del servidor   │                          │
+  │                       ├─ crea recaudo ─────────►│                          │
+  │◄── QR + referencia ───┤◄──── QR Bre-B ──────────┤                          │
+  │                       │                         │                          │
+  ├─ escanea y paga ──────────────────────────────► │                          │
+  │                       │◄── webhook ─────────────┤                          │
+  │                       ├─ GET /collections/{ref} ►│  (nunca confía          │
+  │                       │◄── estado real ─────────┤   en el webhook)         │
+  │                       ├─ compara montos         │                          │
+  │                       ├─ confirma la reserva    │                          │
+  │                       ├─ emite factura ─────────────────────────────────► │
+  │                       │◄──────────────── número + CUFE + QR DIAN ─────────┤
+  │                       ├─ descarga PDF y XML ───────────────────────────────►│
+  │◄── correo con la factura adjunta ───┤                                      │
+  │                       │                         │                          │
+  ├─ GET /mis-ordenes ───►│  "Mis Compras": factura, CUFE, QR, notas           │
+```
+
+**Dos decisiones que sostienen todo esto:**
+
+1. **El webhook no se cree nada.** Cuando Factus Pay avisa que una orden se pagó, el backend vuelve a preguntar por la API (`GET /v1/collections/{referencia}`) y solo actúa sobre esa respuesta. La clave del webhook se compara con `crypto.timingSafeEqual` sobre hashes SHA-256. Los códigos de respuesta son deliberados: `200` cuando no queremos reintento, `500` cuando sí.
+
+2. **Los precios se resuelven en el servidor.** El carrito del navegador solo manda identificadores y cantidades; los importes salen de la base de datos. Antes de confirmar el pago se comparan los montos contra lo que reporta la pasarela.
+
+---
+
+## Módulo de facturación
+
+Todo vive en [Backend/factus/](Backend/factus/):
+
+| Archivo | Responsabilidad |
+|---|---|
+| [pay-client.js](Backend/factus/pay-client.js) | Cliente de Factus Pay. Token en memoria con promesa compartida para evitar carreras, y un reintento ante `401`. |
+| [facturacion-client.js](Backend/factus/facturacion-client.js) | DIAN: facturas, notas crédito, notas débito, descarga de PDF/XML. |
+| [ordenes.js](Backend/factus/ordenes.js) | Lógica de órdenes: creación idempotente, confirmación de pago, anulación, cargos adicionales. |
+| [webhook.js](Backend/factus/webhook.js) | Recepción y verificación de notificaciones de pago. |
+| [rutas.js](Backend/factus/rutas.js) | Endpoints `/api/factus/*` con validación y control de rol. |
+| [correo.js](Backend/factus/correo.js) | SMTP sobre TLS y armado MIME para enviar la factura adjunta. |
+
+### El ciclo fiscal completo
+
+| Documento | Prefijo | Código | Qué hace |
+|---|---|---|---|
+| Factura electrónica | SETP | **CUFE** | Registra la venta ante la DIAN |
+| Nota crédito | CRTE | **CUDE** | Resta o anula una factura ya validada |
+| Nota débito | ND | **CUDE** | Suma un valor sobre una factura emitida |
+
+Una factura validada por la DIAN no se borra ni se edita: se corrige con una nota que la referencia por su número. Por eso la orden anulada conserva sus datos de factura — ante la DIAN la factura sigue existiendo, lo que cambia es que queda corregida.
+
+**Cada tipo de documento tiene su propio rango de numeración autorizado**, y la API los exige explícitamente. Mandar el rango de facturas en una nota crédito devuelve `El campo id rango de numeración es inválido`.
+
+### Dos detalles que cuestan horas si no se saben
+
+**El redondeo.** Factus redondea **cada línea** al céntimo y después suma. No redondea el total ni lo trunca. Un total calculado sobre la suma sin redondear falla con mensajes del tipo `Esperado: 46,899.99 - Enviado: 46,900.00`, y "arreglarlo" truncando hacia abajo rompe el caso contrario (`Esperado: 2,500.00 - Enviado: 2,499.99`). El cálculo está unificado para los tres tipos de documento:
+
+```js
+function calcularTotalDocumento(items) {
+    const centimos = items.reduce((suma, i) => {
+        const base = Number(i.precio_neto_unitario) * Number(i.cantidad);
+        const impuesto = base * (Number(i.tasa_impuesto) / 100);
+        return suma + Math.round(base * 100) + Math.round(impuesto * 100);
+    }, 0);
+    return (centimos / 100).toFixed(2);
+}
+```
+
+**Los códigos van como texto.** `unit_measure_code: "94"` y `standard_code: "999"` son cadenas, no números. Enviarlos numéricos devuelve `422`.
+
+### Idempotencia
+
+La tabla de eventos lleva una clave compuesta que hace imposible procesar dos veces el mismo hecho:
+
+```sql
+UNIQUE KEY uq_facturacion_eventos_idem (fuente, referencia, evento)
+```
+
+Al crear una orden, si ya existe una pendiente para el mismo carrito se reutiliza su recaudo en vez de generar otro — así un cliente que recarga la página o reintenta un pago pendiente no acumula cobros huérfanos.
+
+---
+
+## API REST
+
+### Pagos y facturación — `/api/factus`
+
+| Método | Ruta | Acceso | Qué hace |
+|---|---|---|---|
+| `POST` | `/ordenes` | Autenticado | Crea la orden y devuelve el QR Bre-B |
+| `GET` | `/ordenes/:referencia` | Autenticado | Estado de la orden, factura, notas |
+| `GET` | `/mis-ordenes` | Autenticado | Historial para "Mis Compras" |
+| `POST` | `/ordenes/:referencia/renovar-qr` | Autenticado | Regenera un QR vencido |
+| `POST` | `/ordenes/:referencia/reintentar-factura` | Admin | Reemite una factura que falló |
+| `POST` | `/ordenes/:referencia/reenviar-factura` | Admin | Reenvía el correo con PDF y XML |
+| `POST` | `/ordenes/:referencia/anular` | Admin | Emite nota crédito |
+| `POST` | `/ordenes/:referencia/nota-debito` | Admin | Emite nota débito |
+| `POST` | `/webhook/pay` | Clave de webhook | Notificación de pago de Factus Pay |
+
+> Los endpoints de administración verifican el rol **contra la base de datos**, no contra el token: un JWT viejo de alguien que dejó de ser admin no sirve.
+
+### Autenticación — `/api/auth`
+
+`POST /register` · `POST /login` · `GET /me` · `POST /change-password` · `DELETE /delete-account` · `POST /logout`
+
+### Catálogos y reservas
+
+`GET /api/cortes` · `GET /api/barberos` · `GET /api/productos`
+`POST /api/reservas` · `GET /api/reservas/usuario/:id` · `PUT /api/reservas/:id/cancelar`
+
+### Administración
+
+`POST|PUT|DELETE /api/barberos/:id` · `POST|PUT /api/productos/:id`
+
+---
+
+## Puesta en marcha
+
+### Con Docker
+
+```bash
+docker compose up -d --build
+```
+
+> **El frontend está dentro de la imagen.** Solo `./Backend` se monta como volumen, así que **cualquier cambio en `Frontend/` necesita `--build`**. Un `docker compose restart` no lo recoge.
+
+| Servicio | URL | Credenciales |
+|---|---|---|
+| Aplicación | http://localhost:3000 | |
+| Adminer | http://localhost:8080 | `prestige_user` / ver `.env` |
+| MariaDB | localhost:3306 | `prestige_user` / ver `.env` |
+
+Atajos: `docker.bat up` en Windows, `./docker.sh up` en macOS y Linux.
+
+### En producción
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
+> Omitir los `-f` hace que Docker Compose tome `docker-compose.override.yml`, que fuerza modo desarrollo. En producción los `-f` no son opcionales.
+
+Detalles de VPS, Nginx, Let's Encrypt y firewall: [docs/DESPLIEGUE.md](docs/DESPLIEGUE.md).
+
+### Migraciones
+
+Se aplican en orden y todas son idempotentes — correrlas de nuevo no rompe nada:
+
+```
+Backend/database/
+├── 002-facturacion.sql      Órdenes, items y eventos idempotentes
+├── 003-datos-fiscales.sql   Identificación tributaria del cliente
+├── 004-factura-completa.sql Metadatos DIAN: CUFE, QR, resolución
+├── 005-notas-credito.sql    Anulación de facturas
+└── 006-notas-debito.sql     Cargos adicionales (tabla propia)
+```
+
+La nota débito va en su **propia tabla** y no en columnas de la orden: una factura puede recibir varias a lo largo del tiempo (un interés este mes, un gasto por cobrar el siguiente), mientras la nota crédito anula la factura entera y por eso cabe en la orden.
+
+---
+
+## Variables de entorno
+
+Partir de [.env.example](.env.example). Las que añadió la integración:
+
+```env
+# Factus Pay — pasarela de cobro QR Bre-B
+FACTUS_PAY_BASE_URL=https://pay-api-sandbox.factus.com.co
+FACTUS_PAY_EMAIL=
+FACTUS_PAY_PASSWORD=
+FACTUS_PAY_WEBHOOK_KEY=
+FACTUS_PAY_TIMEOUT_MS=15000
+FACTUS_QR_EXPIRATION_SECONDS=900
+
+# Factus Facturación — DIAN
+FACTUS_API_BASE_URL=https://api-sandbox.factus.com.co
+FACTUS_CLIENT_ID=
+FACTUS_CLIENT_SECRET=
+FACTUS_USERNAME=
+FACTUS_PASSWORD=
+FACTUS_NUMBERING_RANGE_ID=
+FACTUS_DEFAULT_MUNICIPALITY_CODE=
+FACTUS_TIMEOUT_MS=20000
+FACTUS_RATE_LIMIT_MAX=60
+
+# Envío de la factura por correo
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465
+SMTP_USER=
+SMTP_PASS=
+SMTP_FROM=
+SMTP_FROM_NAME=Prestige Barbers
+```
+
+> El entorno sandbox de Factus tiene una **lista blanca de correos que no se puede editar**. Por eso el backend descarga el PDF y el XML y los envía por su propio SMTP, en lugar de delegarle el envío a Factus.
+
+El token de Factus Pay **no expira, pero se revoca en cada autenticación nueva**: hay un solo token activo por usuario. Dos instancias apuntando a las mismas credenciales se invalidan mutuamente.
 
 ---
 
 ## Seguridad
 
-El proyecto ha sido sometido a auditorías exhaustivas de seguridad utilizando herramientas profesionales especializadas en detección de vulnerabilidades.
+| Aspecto | Estado |
+|---|---|
+| Headers | Helmet.js, 7/7 configurados |
+| CSP | `'self'`, sin IPs embebidas |
+| HSTS y `upgrade-insecure-requests` | Solo con `NODE_ENV=production` |
+| CORS | Lista blanca por entorno |
+| Rate limiting | Por niveles; omite `GET`; `trust proxy` activo |
+| Validación | express-validator en todos los endpoints |
+| SQL injection | Consultas parametrizadas |
+| Contraseñas | bcrypt |
+| Sesión | JWT; el rol de admin se verifica contra la BD |
+| Webhook | Comparación en tiempo constante y verificación contra la API |
+| Auditorías | Nessus y Nikto — [Registros de seguridad/](Registros%20de%20seguridad/) |
 
-### Estado de Seguridad
+**Detalle del despliegue:** forzar HTTPS en desarrollo es lo que impide cargar la aplicación por IP de red local — `upgrade-insecure-requests` reescribe cada recurso a `https://` y no hay certificado para una IP privada. De ahí que ambas cabeceras estén condicionadas al entorno.
 
-| Aspecto | Estado | Detalles |
-|---------|--------|----------|
-| Headers de Seguridad | Implementado | 7/7 configurados con Helmet.js |
-| CORS | Configurado | Lista blanca de orígenes permitidos |
-| Rate Limiting | Implementado | 2 niveles: API general (100 req/15min), Auth endpoints (5 intentos/15min) |
-| Validación de Inputs | Implementado | Express-validator en todos los endpoints |
-| Protección SQL Injection | Implementado | Prepared statements y queries parametrizadas |
-| Protección XSS | Implementado | CSP (Content Security Policy) y sanitización |
-| Protección CSRF | Implementado | SameSite cookies |
-| HTTPS Redirect | Implementado | Forzado en ambiente de producción |
-| Auditorías | Completadas | Nessus y Nikto |
-
-**Puntuación General de Seguridad: 9/10**
-
----
-
-## Docker - Containerización
-
-El proyecto está completamente containerizado con Docker, permitiendo despliegue consistente sin dependencias externas (no requiere XAMPP).
-
-### Servicios Docker
-
-| Servicio | Tecnología | Puerto | Propósito |
-|----------|-----------|--------|-----------|
-| Backend | Node.js 18 Alpine | 3000 | API REST de la aplicación |
-| MariaDB | MariaDB 11.4 Alpine | 3306 | Base de datos relacional |
-| Adminer | Adminer Latest | 8080 | Interfaz web para administrar BD |
-
-### Inicio Rápido con Docker
-
-**Windows:**
-```bash
-docker.bat up
-```
-
-**macOS/Linux:**
-```bash
-chmod +x docker.sh
-./docker.sh up
-```
-
-**O directamente:**
-```bash
-docker-compose up -d
-```
-
-### Acceso a Servicios
-
-- Backend API: http://localhost:3000
-- Adminer (Gestor BD): http://localhost:8080
-- Servidor BD: mariadb:3306
-
-### Credenciales BD (Docker)
-
-```
-Usuario: prestige_user
-Contraseña: prestige_password123
-Base de datos: barberia
-```
-
-### Usuarios de Prueba
-
-La base de datos incluye los siguientes usuarios de demostración listos para usar:
-
-| Rol | Email | Contraseña |
-|-----|-------|------------|
-| Usuario | `usuario@demo.com` | `usuario123` |
-| Usuario | `prueba@demo.com` | `usuario123` |
-| Administrador | `admin@demo.com` | `admin123` |
-
-### Panel de Administración
-
-**URL:** http://localhost:3000/Admin/
-
-```
-Email: admin@demo.com
-Contraseña: admin123
-```
-
-> Acceso completo a gestión de barberos, productos, reservas y más.
-
-Para más detalles, ver [Guía Docker](docs/DOCKER-SETUP.md)
-
+**Puertos de base de datos:** `ufw deny 3306` no basta. Docker inserta sus reglas en la cadena `DOCKER-USER`, que se evalúa antes que ufw; hay que cerrarlos ahí.
 
 ---
 
-## Funcionalidades Principales
+## Estructura
 
-### Autenticación y Gestión de Usuarios
-- Registro seguro con encriptación de contraseñas (bcrypt)
-- Autenticación basada en JWT
-- Cambio de contraseña y eliminación de cuenta
-- Perfil de usuario persistente
+```
+Prestige-Barbers/
+├── Backend/
+│   ├── factus/                  Pagos y facturación electrónica
+│   ├── database/                Migraciones idempotentes
+│   ├── uploads/                 Imágenes de barberos y productos
+│   └── server.js                Monolito Express
+│
+├── Frontend/public/
+│   ├── js/factus-checkout.js    Modal de QR, cuenta atrás y sondeo
+│   ├── perfil/                  Perfil, reservas y "Mis Compras"
+│   ├── Tienda/ Compra/          Catálogo y carrito
+│   ├── Reserva/ Barberos/ Cortes/
+│   ├── Admin/                   Panel administrativo
+│   └── I-style/ I-img/ Icons/
+│
+├── animaciones/                 Intro animada en Canvas + exportador
+├── docs/                        Documentación técnica
+├── docker-compose.yml           Base
+├── docker-compose.prod.yml      Producción
+└── docker-compose.override.yml  Desarrollo (se aplica solo, ojo)
+```
 
-### Portafolios de Profesionales
-- Galería de cortes de cabello con categorización
-- Galería de estilos de barba
-- Sistema de destacados y principales
-- Relaciones entre estilos para recomendaciones
+> **Nota para quien toque el perfil:** [Frontend/public/perfil/index.html](Frontend/public/perfil/index.html) **no carga `perfil.js`**. Toda su lógica está en un `<script>` en línea dentro del propio HTML. Editar `perfil.js` no tiene ningún efecto en esa página.
 
-### Sistema de Reservas
-- Reservas directas con barbero específico
-- Servicios adicionales dinámicos configurables
-- Visualización de disponibilidad
-- Cancelación de reservas
-- Historial de reservas del usuario
+---
 
-### Comercio Electrónico
-- Catálogo de productos capilares
-- Carrito de compras dinámico
-- Gestión de inventario
+## Intro animada
 
-### Panel Administrativo
-- Gestión completa de barberos
-- Administración de productos
-- Carga y gestión de imágenes
-- Control de acceso administrativo
+[animaciones/](animaciones/) contiene un motor de animación en Canvas con el logo de Penta{sys}4.0: cuatro planos, 34 segundos, el tiempo como único parámetro, de modo que cualquier instante se puede renderizar de forma independiente y reproducible.
+
+`exportar.cjs` usa el Chrome DevTools Protocol para capturar cada fotograma exacto y los codifica con ffmpeg a tasa constante (`keyint=1:scenecut=0`), lo que da un vídeo donde cada fotograma es clave y el montaje posterior no pierde nitidez.
 
 ---
 
 ## Documentación
 
-La documentación técnica completa está organizada en la carpeta `/docs`:
-
-### Documentación Principal
-- **01-Visión y Alcance.md** - Propósito, alcance y objetivos del sistema
-- **02-nfrs.md** - Requisitos no funcionales
-- **03-Contexto y Contenedores.md** - Diagramas C4
-- **04-Backlog.md** - Backlog de historias de usuario
-- **05-Sistema de Autenticación completo.md** - Especificación de autenticación
-- **06-Sistema Modal de Autenticación.md** - Implementación de modales
-
-### Documentación Frontend (`docs/docs_frontend/`)
-- **07-Modales Personalizados y Detección de Sesión.md** - Componentes UI
-- **08-Sistema Modal de Rservas.md** - Interfaz de reservas
-- **09-Implementación de Tienda Dinamica.md** - Tienda virtual
-
-### Documentación de Funcionalidades (`docs/docs_funcionalidades/`)
-- **10-Sistema de Servicio Adicional Dinámico.md** - Servicios configurables
-- **11-Sistema de Carrito de Compras.md** - E-commerce
-- **12-Sistema de Gestión de Productos.md** - Inventario
-- **13-Sistema de Reservas Completo.md** - Especificación completa de reservas
-
-### Documentación de Seguridad (`docs/docs_seguridad/`)
-- **14-Auditoría de Seguridad.md** - Informe de vulnerabilidades y soluciones
-
-### Documentación Arquitectónica
-- **ADR-000-monolito-node-postgres.md** - Arquitectura elegida y justificación
-
----
-
-## Estructura del Proyecto
-
-```
-Prestige-Barbers/
-│
-├── Backend/
-│   ├── database/
-│   │   ├── agregar-admin.sql
-│   │   ├── productos-schema.sql
-│   │   ├── reservas-schema.sql
-│   │   └── reservas-update-servicio-adicional.sql
-│   ├── uploads/
-│   ├── crear-admin.js
-│   ├── install-security.js
-│   ├── server.js
-│   ├── verificar-admin.js
-│   ├── verificar-columnas.js
-│   ├── verificar-seguridad.js
-│   ├── package.json
-│   ├── package-lock.json
-│   ├── .env
-│   ├── .env.example
-│   └── .gitignore
-│
-├── Frontend/
-│   └── public/
-│       ├── index.html
-│       ├── Admin/           (Panel administrativo)
-│       ├── Barberos/        (Catálogo de barberos)
-│       ├── Cortes/          (Galería de cortes)
-│       ├── Reserva/         (Sistema de reservas)
-│       ├── Tienda/          (E-commerce)
-│       ├── Compra/          (Carrito de compras)
-│       ├── perfil/          (Perfil de usuario)
-│       ├── js/              (Scripts JavaScript)
-│       ├── I-style/         (Estilos CSS)
-│       ├── I-style-adm/     (Estilos admin)
-│       ├── I-img/           (Imágenes)
-│       ├── Icons/           (Iconos)
-│       └── robots.txt
-│
-├── docs/
-│   ├── 01-Visión y Alcance.md
-│   ├── 02-nfrs.md
-│   ├── 03-Contexto y Contenedores.md
-│   ├── 04-Backlog.md
-│   ├── 05-Sistema de Autenticación completo.md
-│   ├── 06-Sistema Modal de Autenticación.md
-│   ├── ADR-000-monolito-node-postgres.md
-│   ├── ACTUALIZACIONES-CARRITO.md
-│   ├── AUDITORIA-SEGURIDAD-PRESTIGE-BARBERS.md
-│   ├── CORRECIONES-MODALES-Y-SESION.md
-│   ├── IMPLEMENTACION-AUTH.md
-│   ├── MODAL-RESERVA-DOCS.md
-│   ├── SERVICIO-ADICIONAL-DINAMICO.md
-│   ├── SISTEMA-CARRITO-COMPRAS.md
-│   ├── SISTEMA-PRODUCTOS-ADMIN.md
-│   ├── SISTEMA-RESERVAS-COMPLETO.md
-│   ├── TIENDA-DINAMICA-IMPLEMENTADA.md
-│   ├── docs_frontend/
-│   ├── docs_funcionalidades/
-│   ├── docs_seguridad/
-│   └── docs_images/
-│
-├── Registros de seguridad/
-│   ├── 0.0/
-│   ├── 1.0/
-│   └── 2.0/
-│
-├── package.json
-├── README.md
-└── .git/
-```
-
----
-
-## Requisitos del Sistema
-
-Dependiendo de tu método de instalación:
-
-### Con Docker (Recomendado)
-- Docker Desktop
-- RAM: 2GB mínimo (4GB recomendado)
-
-### Local (sin Docker)
-- Node.js 14.0 o superior
-- MySQL 5.7 o superior
-- RAM: 1GB mínimo
-
----
-
-## Instalación y Ejecución del Sistema
-
-Este proyecto está completamente containerizado con Docker. Los siguientes pasos permiten ejecutar la aplicación en cualquier plataforma sin instalar dependencias adicionales.
-
----
-
-### Requisitos Previos
-
-**Opción 1: Docker (Recomendado - Sin XAMPP)**
-- Docker Desktop instalado
-- Docker Compose (incluido en Docker Desktop)
-- RAM: 2GB mínimo (4GB recomendado)
-
-Descargar Docker Desktop: https://www.docker.com/products/docker-desktop
-
-**Opción 2: Local (Sin Docker - Requiere instalar todo manualmente)**
-- Node.js 14.0 o superior
-- MySQL 5.7 o superior
-- XAMPP (opcional) o LAMP stack
-
----
-
-### Guía Rápida: Inicio en 3 Minutos
-
-#### Paso 1: Verificar Requisitos Docker
-
-```bash
-docker --version
-docker-compose --version
-```
-
-Si no están instalados, descargar Docker Desktop desde: https://www.docker.com/products/docker-desktop
-
-#### Paso 2: Navegar a la Carpeta del Proyecto
-
-```bash
-cd Prestige-Barbers-Clonado
-```
-
-#### Paso 3: Iniciar los Servicios
-
-**En Windows:**
-```bash
-docker.bat up
-```
-
-**En macOS/Linux:**
-```bash
-chmod +x docker.sh
-./docker.sh up
-```
-
-**O en cualquier sistema (alternativa):**
-```bash
-docker-compose up -d
-```
-
-#### Paso 4: Esperar a que Todo Esté Listo
-
-```
-Esperar 30-60 segundos a que veas:
-
-✓ prestige-barbers-db       (HEALTHY)
-✓ prestige-barbers-backend  (HEALTHY)  
-✓ prestige-barbers-adminer  (UP)
-```
-
-#### Paso 5: Acceder a la Aplicación
-
-| Servicio | URL | Credenciales |
-|----------|-----|--------------|
-| **Backend API** | http://localhost:3000 | Test: `GET /api/auth/me` |
-| **Gestor BD Web** | http://localhost:8080 | Usuario: `prestige_user` / Pass: `prestige_password123` |
-| **Base de Datos** | localhost:3306 | Usuario: `prestige_user` / Pass: `prestige_password123` |
-
----
-
-### Verificar que Todo Está Corriendo
-
-```bash
-# Ver estados de contenedores
-docker-compose ps
-
-# Ver logs en tiempo real
-docker-compose logs -f
-
-# Ver solo logs del backend
-docker-compose logs -f backend
-
-# Ver solo logs de la BD
-docker-compose logs -f mariadb
-```
-
----
-
-### Comandos Útiles para Docker
-
-**Detener la aplicación:**
-```bash
-docker-compose down
-```
-
-**Reiniciar servicios:**
-```bash
-docker-compose restart
-```
-
-**Acceder a MariaDB desde terminal:**
-```bash
-docker-compose exec mariadb mariadb -u prestige_user -pprestige_password123 barberia
-```
-
-**Acceder a línea de comandos del backend:**
-```bash
-docker-compose exec backend sh
-```
-
-**Limpiar TODO (⚠️ elimina datos):**
-```bash
-docker-compose down -v
-```
-
-**Reconstruir después de cambios en dependencias:**
-```bash
-docker-compose build
-docker-compose restart backend
-```
-
----
-
-### Solución de Problemas Comunes
-
-#### Error: "Port 3000 already in use"
-```bash
-# Editar .env y cambiar:
-APP_PORT=3001
-
-# Luego reiniciar:
-docker-compose down
-docker-compose up -d
-```
-
-#### Error: "Cannot connect to Docker daemon"
-- Asegurate que Docker Desktop está abierto
-- En Linux: `sudo systemctl start docker`
-
-#### MariaDB no inicia (unhealthy)
-```bash
-docker-compose down -v
-docker-compose up -d
-```
-
-#### Los cambios en código no se reflejan
-```bash
-docker-compose build --no-cache
-docker-compose restart backend
-```
-
----
-
-### Instalación Alternativa: Local (Sin Docker)
-
-Si prefieres no usar Docker, sigue estos pasos:
-
-#### Backend
-
-1. Navegar a Backend:
-```bash
-cd Backend
-```
-
-2. Instalar dependencias:
-```bash
-npm install
-```
-
-3. Crear archivo .env:
-```bash
-cp .env.example .env
-```
-
-4. Editar `.env` con tus credenciales locales de MySQL:
-```env
-DB_HOST=localhost
-DB_USER=root
-DB_PASSWORD=tu_password
-DB_NAME=barberia
-```
-
-5. Importar base de datos:
-```bash
-# Con MySQL instalado
-mysql -u root -p < ../barberia.sql
-```
-
-6. Iniciar servidor:
-```bash
-npm start          # Producción
-npm run dev        # Desarrollo
-```
-
-#### Frontend
-
-El frontend se sirve automáticamente desde Express en `http://localhost:3000` una vez que el backend inicia.
-
----
-
-### Estructura de Datos y Persistencia
-
-Los datos se almacenan en volúmenes Docker persistentes:
-
-| Ubicación | Contenido |
-|-----------|----------|
-| `mariadb_data/` | Base de datos completa |
-| `Backend/uploads/` | Imágenes de barberos y productos |
-| `Backend/logs/` | Logs de la aplicación |
-
-**Nota:** Al hacer `docker-compose down` SIN `-v`, los datos se mantienen.
-
----
-
-### Restaurar Base de Datos
-
-El archivo `barberia.sql` se restaura automáticamente al iniciar MariaDB.
-
-**Si necesitas restaurar manualmente:**
-```bash
-docker-compose exec mariadb mariadb -u prestige_user -pprestige_password123 barberia < barberia.sql
-```
-
-**O vía Adminer (http://localhost:8080):**
-1. Ir a "Importar"
-2. Seleccionar `barberia.sql`
-3. Ejecutar
-
----
-
-### Documentación Completa
-
-Para información más detallada, consulta:
-
 | Documento | Contenido |
-|-----------|-----------|
-| [QUICK-START.md](docs/QUICK-START.md) | Inicio rápido (resumen) |
-| [DOCKER-SETUP.md](docs/DOCKER-SETUP.md) | Guía Docker completa (50+ secciones) |
+|---|---|
+| [PLAN-FACTUS-PAY.md](docs/PLAN-FACTUS-PAY.md) | Las 6 fases de la integración, con historias de usuario y checklist |
+| [DESPLIEGUE.md](docs/DESPLIEGUE.md) | VPS, Nginx, Let's Encrypt, firewall |
+| [QUICK-START.md](docs/QUICK-START.md) | Arranque en 3 minutos |
+| [DOCKER-SETUP.md](docs/DOCKER-SETUP.md) | Guía Docker completa |
 | [ARQUITECTURA-DOCKER.md](docs/ARQUITECTURA-DOCKER.md) | Diagramas y diseño |
-| [NGINX-PRODUCCION.md](docs/NGINX-PRODUCCION.md) | Configuración para producción |
+| [NGINX-PRODUCCION.md](docs/NGINX-PRODUCCION.md) | Configuración del proxy inverso |
+| [ADR-000](docs/ADR-000-monolito-node-postgres.md) | Por qué monolito |
+| [Auditoría de seguridad](docs/AUDITORIA-SEGURIDAD-PRESTIGE-BARBERS.md) | Vulnerabilidades y soluciones |
+
+Especificaciones funcionales en [docs/docs_funcionalidades/](docs/docs_funcionalidades/), de interfaz en [docs/docs_frontend/](docs/docs_frontend/), de seguridad en [docs/docs_seguridad/](docs/docs_seguridad/).
+
+El documento entregado al jurado de API Wars es `API-Wars-Prestige-Barbers-Penta-sys-4.0.pdf`.
 
 ---
 
----
+## Requisitos
 
-## Arquitectura
-
-El proyecto implementa un diseño de arquitectura cliente-servidor monolítica con las siguientes características:
-
-### Decisión Arquitectónica (ADR-000)
-Se eligió una arquitectura monolítica Node.js + Express + MySQL por:
-- Simplicidad operativa en fase MVP
-- Escalabilidad inicial adecuada
-- Compatibilidad directa con gateways de pago locales
-- Facilidad de mantenimiento y despliegue
-- Tecnologías estándar y accesibles
-
-### Componentes Principales
-
-```
-┌─────────────────┐
-│   Frontend      │ HTML5 / CSS3 / JavaScript Vanilla
-│  (Navegador)    │ Modales, Carrito, Búsqueda
-└────────┬────────┘
-         │ HTTP/REST
-         │
-┌────────▼────────────────────────────┐
-│   Backend (Node.js + Express)       │
-├────────────────────────────────────┤
-│ Routing         │ Endpoints REST    │
-│ Middleware      │ Autenticación JWT │
-│ Rate Limiting   │ Validación Input  │
-│ Seguridad       │ Manejo de Files   │
-└────────┬────────────────────────────┘
-         │ MySQL Protocol
-         │
-┌────────▼────────────────┐
-│   Base de Datos         │
-│   MySQL 5.7+            │
-│ - Usuarios              │
-│ - Barberos              │
-│ - Cortes / Barbas       │
-│ - Reservas              │
-│ - Productos             │
-└─────────────────────────┘
-```
+**Con Docker:** Docker Desktop y 2 GB de RAM (4 GB recomendado).
+**Sin Docker:** Node.js 18 o superior y MySQL 5.7 / MariaDB 10.4 o superior.
 
 ---
 
-## API REST Endpoints
+## Problemas frecuentes
 
-### Autenticación
-- `POST /api/auth/register` - Registrar nuevo usuario
-- `POST /api/auth/login` - Iniciar sesión
-- `GET /api/auth/me` - Obtener perfil actual (protegido)
-- `POST /api/auth/change-password` - Cambiar contraseña (protegido)
-- `DELETE /api/auth/delete-account` - Eliminar cuenta (protegido)
-- `POST /api/auth/logout` - Cerrar sesión
-
-### Catálogos
-- `GET /api/cortes` - Listar cortes de cabello
-- `GET /api/barberos` - Listar barberos
-- `GET /api/productos` - Listar productos
-
-### Reservas
-- `POST /api/reservas` - Crear reserva (protegido)
-- `GET /api/reservas/usuario/:id` - Mis reservas (protegido)
-- `PUT /api/reservas/:id/cancelar` - Cancelar reserva (protegido)
-
-### Panel Administrativo
-- `POST /api/barberos` - Crear barbero
-- `PUT /api/barberos/:id` - Actualizar barbero
-- `DELETE /api/barberos/:id` - Eliminar barbero
-- `POST /api/productos` - Crear producto
-- `PUT /api/productos/:id` - Actualizar producto
-
----
-
-## Variables de Entorno
-
-Crear archivo `.env` en la carpeta `Backend`:
-
-```env
-PORT=3000
-DB_HOST=localhost
-DB_USER=root
-DB_PASSWORD=1234
-DB_NAME=barberia
-
-JWT_SECRET=tu_clave_secreta_aqui_cambiar_en_produccion
-NODE_ENV=development
-
-ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
-```
-
----
-
-## Criterios de Éxito MVP
-
-El producto mínimo viable se evalúa mediante:
-
-1. **Satisfacción del Cliente** - Validación directa en prototipos y entregables
-2. **Funcionalidad** - Cumplimiento de requisitos principales
-3. **Experiencia de Usuario** - Interfaz intuitiva y accesible
-4. **Estabilidad** - Disponibilidad y rendimiento
-5. **Seguridad** - Ausencia de vulnerabilidades críticas
-
-El sistema está diseñado para evolucionar iterativamente basado en retroalimentación de usuarios reales, permitiendo ajustes, nuevas funcionalidades y optimizaciones progresivas.
-
----
-
-## Pruebas de Seguridad
-
-El proyecto ha completado auditorías de seguridad:
-
-### Herramientas Utilizadas
-- **Nessus** - Escaneo de vulnerabilidades
-- **Nikto** - Análisis de seguridad web
-
-### Reportes Disponibles
-- `Registros de seguridad/0.0/` - Fase inicial
-- `Registros de seguridad/1.0/` - Iteración 1
-- `Registros de seguridad/2.0/` - Iteración 2 (Actual)
-
----
-
-## Dependencias Principales
-
-### Backend Dependencies
-```json
-{
-  "express": "^5.1.0",
-  "mysql2": "^3.15.1",
-  "bcrypt": "^5.1.1",
-  "jsonwebtoken": "^9.0.2",
-  "helmet": "^7.2.0",
-  "cors": "^2.8.5",
-  "express-rate-limit": "^7.5.1",
-  "express-validator": "^7.3.0",
-  "multer": "^2.0.2",
-  "dotenv": "^16.6.1",
-  "winston": "^3.18.3"
-}
-```
-
----
-
-## Contribución y Mejoras
-
-Para sugerencias, reportes de bugs o mejoras:
-1. Documenta claramente el problema o sugerencia
-2. Incluye pasos para reproducir (si es un bug)
-3. Proporciona evidencia (screenshots, logs)
-4. Contacta con el equipo de desarrollo
+| Síntoma | Causa |
+|---|---|
+| Los cambios del frontend no aparecen | Falta `--build`: el frontend está en la imagen |
+| No cargan los estilos por IP de red local | `upgrade-insecure-requests` fuerza HTTPS; usar `NODE_ENV=development` |
+| `429` desde varios dispositivos | Todos llegan con la IP del gateway de Docker; requiere `trust proxy` |
+| `422` de Factus por un céntimo | El total hay que redondear por línea, no sobre la suma |
+| `422` en `unit_measure_code` | Debe ir como cadena: `"94"`, no `94` |
+| Rango de numeración inválido en una nota | Cada tipo de documento usa su propio rango |
+| MariaDB no arranca | `docker compose down -v` y volver a levantar |
 
 ---
 
 ## Licencia
 
-Este proyecto está protegido. Todos los derechos reservados.
+Todos los derechos reservados.
 
 ---
 
-## Contacto y Soporte
+<div align="center">
 
-Para consultas técnicas o soporte:
-- **Juan Diego Arrieta Herrera**
-- **Valentina Ojeda Pascasión**
+**Penta{sys}4.0** · API Wars · Noviembre 2026
+Versión 2.0.0 — pagos y facturación electrónica en producción
 
----
-
-**Última actualización:** Abril 2026  
-**Versión:** 1.0.0  
-**Estado:** En desarrollo activo
-
+</div>
